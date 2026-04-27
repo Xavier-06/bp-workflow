@@ -1,0 +1,15 @@
+# BP Workflow Core Dependencies
+requests>=2.28.0
+python-docx>=0.8.11
+
+# Document parsing (optional — install what you need)
+# pdfminer.six>=20221105    # PDF text extraction
+# PyPDF2>=3.0.0             # PDF text extraction (alternative)
+# python-pptx>=0.6.21       # PPTX text + image extraction
+# pdf2image>=1.16.3         # PDF → PNG (requires poppler)
+
+# Search (optional — for search_gateway.py)
+# scrapling>=0.3.0          # Advanced web scraping with TLS fingerprinting
+
+# Notification plugins (optional — install what you need)
+# wechat-ilink-bot>=0.1.0   # WeChat notification

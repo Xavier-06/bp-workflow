@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment & secrets
+.env
+.credentials/
+*.key
+*.pem
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime data
+jobs/
+tasks/
+data/
+logs/
+*.log
+
+# Build artifacts
+delivery/
+outputs/
+extraction/
+search/
+verification/
+briefs/
+state/
+artifacts/
+
+# Node (for SearXNG manager)
+node_modules/
+
+# Temporary
+*.tmp
+*.bak
