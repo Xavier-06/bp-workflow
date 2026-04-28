@@ -1,0 +1,75 @@
+{
+  "official_domains": {
+    "hk": ["hkexnews.hk", "disclose.hkex.com.hk"],
+    "us": ["sec.gov"],
+    "generic": []
+  },
+  "tier1_media_domains": [
+    "reuters.com",
+    "bloomberg.com",
+    "ft.com",
+    "wsj.com",
+    "finance.yahoo.com",
+    "hk.finance.yahoo.com",
+    "marketwatch.com"
+  ],
+  "blocked_domains": [
+    "medium.com",
+    "github.com",
+    "shacknews.com",
+    "techpowerup.com"
+  ],
+  "low_confidence_domains": [
+    "seekingalpha.com",
+    "investing.com",
+    "forums",
+    "reddit.com"
+  ],
+  "news_preferred_domains": [
+    "news.qq.com",
+    "thepaper.cn",
+    "finance.sina.com.cn",
+    "36kr.com",
+    "ithome.com",
+    "news.mydrivers.com",
+    "reuters.com",
+    "bloomberg.com",
+    "ft.com",
+    "news.cctv.com",
+    "163.com"
+  ],
+  "news_blocked_domains": [
+    "zhihu.com",
+    "zhidao.baidu.com",
+    "baike.baidu.com",
+    "baike.sogou.com",
+    "jingyan.baidu.com"
+  ],
+  "news_blocked_url_patterns": [
+    "/tag/",
+    "/tags/",
+    "/topic/",
+    "/search/",
+    "/collection/",
+    "/list/",
+    "/channel/",
+    "/index/",
+    "/hot",
+    "/answers/updated",
+    "/tardis/",
+    "/blog",
+    "/updates"
+  ],
+  "news_blocked_title_patterns": [
+    "怎么办",
+    "是什么",
+    "为什么",
+    "汇总",
+    "合集",
+    "大全",
+    "教程",
+    "指南",
+    "入口",
+    "官网"
+  ]
+}

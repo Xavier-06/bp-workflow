@@ -1,0 +1,124 @@
+{
+  "description": "market_news 专用规则配置",
+  "version": "1.0.0",
+  "updated": "2026-03-25",
+  
+  "blocking": {
+    "blocked_domains": [
+      "zhihu.com",
+      "zhidao.baidu.com",
+      "baike.baidu.com",
+      "baike.sogou.com",
+      "jingyan.baidu.com",
+      "tieba.baidu.com",
+      "reddit.com",
+      "medium.com"
+    ],
+    "blocked_url_patterns": [
+      "/tag/",
+      "/tags/",
+      "/topic/",
+      "/search/",
+      "/collection/",
+      "/list/",
+      "/channel/",
+      "/index/",
+      "/hot",
+      "/answers/updated",
+      "/tardis/",
+      "/blog",
+      "/updates"
+    ],
+    "blocked_title_patterns": [
+      "怎么办",
+      "是什么",
+      "为什么",
+      "汇总",
+      "合集",
+      "大全",
+      "教程",
+      "指南",
+      "入口",
+      "官网"
+    ]
+  },
+  
+  "trust_tiers": {
+    "trusted_news_domains": [
+      "news.qq.com",
+      "thepaper.cn",
+      "finance.sina.com.cn",
+      "36kr.com",
+      "ithome.com",
+      "news.mydrivers.com",
+      "reuters.com",
+      "bloomberg.com",
+      "ft.com",
+      "news.cctv.com",
+      "163.com",
+      "sohu.com",
+      "ifeng.com",
+      "caixin.com",
+      "jiemian.com",
+      "cn.reuters.com",
+      "wallstreetcn.com",
+      "cctv.com",
+      "xinhuanet.com",
+      "people.com.cn",
+      "chinanews.com",
+      "stcn.com",
+      "cs.com.cn",
+      "21jingji.com",
+      "yicai.com",
+      "nbd.com.cn",
+      "news.cn"
+    ],
+    "weak_news_domains": [
+      "seekingalpha.com",
+      "investing.com",
+      "eastmoney.com",
+      "10jqka.com.cn"
+    ]
+  },
+  
+  "quality_gates": {
+    "min_content_length": 220,
+    "min_title_length": 8,
+    "require_detail_page": true,
+    "soft_drop_reasons": [
+      "untrusted_news_source"
+    ],
+    "hard_drop_reasons": [
+      "blocked_domain",
+      "not_detail_page",
+      "thin_content",
+      "fetch_failed",
+      "too_old",
+      "duplicate_url",
+      "duplicate_title",
+      "duplicate_similar_title"
+    ]
+  },
+  
+  "time_rules": {
+    "default_freshness_hours": 72,
+    "strict_freshness_mode": false,
+    "allow_missing_time_with_content": true,
+    "time_confidence_weights": {
+      "high": 1.0,
+      "medium": 0.7,
+      "low": 0.3
+    }
+  },
+  
+  "dedupe": {
+    "title_similarity_threshold": 0.9,
+    "url_canonicalize": true
+  },
+  
+  "metrics": {
+    "track_domains": true,
+    "track_drop_reasons": true,
+    "track_time_confidence": true
+  }
+}

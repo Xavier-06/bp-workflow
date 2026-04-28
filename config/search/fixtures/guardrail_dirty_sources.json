@@ -1,0 +1,33 @@
+{
+  "name": "guardrail_dirty_sources",
+  "description": "守门测试：脏源防回流 - 验证聚合页/问答/Tag页被拦截",
+  "task_type": "market_news",
+  "query": "科技 股市 投资",
+  "company": null,
+  "market": "generic",
+  "ticker": null,
+  "freshness_hours": 72,
+  "max_results": 10,
+  "expected_min_kept_count": 0,
+  "must_not_contain_domains": [
+    "zhihu.com",
+    "zhidao.baidu.com",
+    "baike.baidu.com"
+  ],
+  "must_not_contain_url_patterns": [
+    "/tag/",
+    "/tags/",
+    "/topic/",
+    "/search/",
+    "/list/",
+    "/channel/"
+  ],
+  "allowed_drop_reasons": [
+    "not_detail_page",
+    "thin_content",
+    "too_old",
+    "missing_publish_time",
+    "untrusted_news_source"
+  ],
+  "assertion": "kept 结果中不能出现 zhihu.com、zhidao.baidu.com 或任何 /tag//topic//list/ 模式的 URL"
+}

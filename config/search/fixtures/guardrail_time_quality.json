@@ -1,0 +1,18 @@
+{
+  "name": "guardrail_time_quality",
+  "description": "守门测试：时间质量 - 验证 missing_publish_time 和 too_old 被正确拦截",
+  "task_type": "market_news",
+  "query": "股票 财经",
+  "company": null,
+  "market": "generic",
+  "ticker": null,
+  "freshness_hours": 24,
+  "max_results": 10,
+  "expected_min_kept_count": 0,
+  "assertion": {
+    "missing_publish_time_should_drop": true,
+    "too_old_should_drop": true,
+    "time_confidence_low_should_not_pass": true
+  },
+  "note": "验证时间推断规则正常工作：无时间戳的内容不能冒充高时效新闻"
+}

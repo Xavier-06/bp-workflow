@@ -1,0 +1,26 @@
+{
+  "company_research": {
+    "query": "{company} 公司简介",
+    "provider_order": ["searxng"],
+    "freshness_hours": 720,
+    "max_results": 10,
+    "allow_fallback": true,
+    "need_full_text": true
+  },
+  "market_news": {
+    "query": "{query}",
+    "provider_order": ["searxng"],
+    "freshness_hours": 72,
+    "max_results": 10,
+    "allow_fallback": true,
+    "need_full_text": true
+  },
+  "broad_research": {
+    "query": "{query}",
+    "provider_order": ["searxng"],
+    "freshness_hours": 168,
+    "max_results": 12,
+    "allow_fallback": true,
+    "need_full_text": true
+  }
+}

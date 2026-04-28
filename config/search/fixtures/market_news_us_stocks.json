@@ -1,0 +1,30 @@
+{
+  "name": "market_news_us_stocks",
+  "description": "美股市场新闻测试",
+  "task_type": "market_news",
+  "query": "美股",
+  "company": null,
+  "market": "us",
+  "ticker": null,
+  "freshness_hours": 72,
+  "max_results": 10,
+  "expected_min_kept_count": 1,
+  "must_not_contain_domains": [
+    "zhihu.com",
+    "zhidao.baidu.com",
+    "baike.baidu.com",
+    "baike.sogou.com",
+    "reddit.com",
+    "medium.com"
+  ],
+  "allowed_drop_reasons": [
+    "too_old",
+    "missing_publish_time",
+    "thin_content",
+    "untrusted_news_source",
+    "duplicate_url",
+    "duplicate_title",
+    "duplicate_similar_title"
+  ],
+  "note": "验证美股市场新闻能被稳定召回"
+}

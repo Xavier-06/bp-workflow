@@ -1,0 +1,171 @@
+{
+  "meta": {
+    "version": 2,
+    "description": "Investment-research runtime routing and storage policy",
+    "strategy": "single-model-subagent"
+  },
+  "routing": {
+    "primary_controller": "GPT-5.4 (main orchestrator)",
+    "fallback_controller": "GPT-5.4 (same-session no-subagent mode)",
+    "fallback_notice_required": true,
+    "execution_mode": "single-model-subagent",
+    "subagent_policy": {
+      "enabled": true,
+      "default_runtime": "subagent",
+      "spawn_when": [
+        "专题研究类",
+        "回顾类",
+        "多步骤长任务"
+      ],
+      "avoid_when": [
+        "晨报脚本固定链",
+        "轻量查价/快报",
+        "纯脚本可稳定完成的机械步骤"
+      ],
+      "goal": "Use GPT-5.4 everywhere for reasoning roles while keeping deterministic scripts as the execution backbone.",
+      "specialist_team_size": {
+        "default_min": 6,
+        "default_max": 9,
+        "required_for": [
+          "专题研究类"
+        ],
+        "no_silent_downgrade": true
+      },
+      "downgrade_protocol": {
+        "must_notify_xavier": true,
+        "required_fields": [
+          "reason",
+          "impact",
+          "recovery_plan"
+        ],
+        "note": "If subagent team cannot be fully spawned, do not silently switch to single-agent execution."
+      },
+      "instruction_store_driven_roster": true,
+      "instruction_store_index": "instruction_store/index.json",
+      "subagent_reasoning_policy": {
+        "main_session": "/reasoning on + /thinking high",
+        "subagents": "thinking=high (reasoning-equivalent policy)",
+        "note": "sessions_spawn currently enforces thinking directly for subagents; maintain high-thinking as mandatory baseline."
+      }
+    },
+    "search_discovery": [
+      "SearXNG (local, auto-start)",
+      "DuckDuckGo (key-free)",
+      "Yahoo Finance (key-free)"
+    ],
+    "page_fetch": [
+      "Scrapling",
+      "Playwright (when static fetch is insufficient)"
+    ],
+    "translation": [
+      "qwen-turbo (briefing scripts only; not part of IR main-agent routing)"
+    ],
+    "task_type_stage_models": {
+      "专题研究类": {
+        "controller": "GPT-5.4 (main orchestrator)",
+        "fallback": "GPT-5.4 (same-session no-subagent mode)",
+        "search_summary": "GPT-5.4 (builder-search subagent)",
+        "analysis": "GPT-5.4 (builder-analysis subagent)",
+        "long_context": "GPT-5.4 (analysis/reviewer subagent)",
+        "writer": "GPT-5.4 (writer subagent)",
+        "reviewer": "GPT-5.4 (reviewer subagent)"
+      },
+      "晨报类": {
+        "controller": "GPT-5.4 (main orchestrator)",
+        "fallback": "GPT-5.4 (same-session scripted mode)",
+        "search_summary": "GPT-5.4 (optional review only)",
+        "analysis": "GPT-5.4 (optional review only)",
+        "writer": "script-first",
+        "reviewer": "GPT-5.4 (quality gate escalation only)"
+      },
+      "快报类": {
+        "controller": "GPT-5.4 (main orchestrator)",
+        "fallback": "GPT-5.4 (same-session no-subagent mode)",
+        "search_summary": "GPT-5.4 (main session or single subagent)",
+        "analysis": "GPT-5.4 (main session)",
+        "writer": "GPT-5.4 (main session)"
+      },
+      "资料整理类": {
+        "controller": "GPT-5.4 (main orchestrator)",
+        "fallback": "GPT-5.4 (same-session no-subagent mode)",
+        "search_summary": "GPT-5.4 (builder-search subagent)",
+        "writer": "GPT-5.4 (writer subagent)"
+      },
+      "回顾类": {
+        "controller": "GPT-5.4 (main orchestrator)",
+        "fallback": "GPT-5.4 (same-session no-subagent mode)",
+        "analysis": "GPT-5.4 (analysis subagent)",
+        "writer": "GPT-5.4 (writer subagent)",
+        "reviewer": "GPT-5.4 (reviewer subagent)"
+      }
+    },
+    "agent_role_assignment": {
+      "orchestrator": "GPT-5.4 main session — route work, own task state, report to Xavier, decide gates",
+      "builder_search": "GPT-5.4 subagent — expand search angles, improve query packs, inspect evidence gaps",
+      "industry_analyst": "GPT-5.4 subagent — industry structure, market sizing, competitive map",
+      "business_model_analyst": "GPT-5.4 subagent — revenue engine, unit economics, GTM, product logic",
+      "financial_valuation_analyst": "GPT-5.4 subagent — forecast, valuation, target price logic, scenario table",
+      "management_quality_analyst": "GPT-5.4 subagent — management, governance, capital allocation, execution",
+      "differentiation_analyst": "GPT-5.4 subagent — moat, edge, product/tech differentiation",
+      "risk_catalyst_analyst": "GPT-5.4 subagent — key risks, catalysts, trigger table, invalidation",
+      "reviewer": "GPT-5.4 subagent — pass/fail review gates, stop low-evidence outputs",
+      "writer": "GPT-5.4 subagent — memo structure, polishing, delivery packaging",
+      "ops_scripts": "deterministic local scripts — fetch, packet fill, evidence table, bundle assembly"
+    },
+    "conflict_avoidance": [
+      "Do not replace the deterministic IR script chain with free-form subagents.",
+      "Subagents only add reasoning/review layers around existing scripts and artifacts.",
+      "All artifacts stay in data/tasks/ and reports/; no parallel shadow directories.",
+      "Only the main orchestrator updates task state, communicates outward, and decides Done/Failed.",
+      "Morning briefing scripts remain script-first; subagents only enter on escalation/review, not as the default generation path."
+    ],
+    "thinking_policy": {
+      "default_subagent_thinking": "high",
+      "default_main_reasoning": "high",
+      "reasoning_roles": [
+        "builder_search",
+        "industry_analyst",
+        "business_model_analyst",
+        "financial_valuation_analyst",
+        "management_quality_analyst",
+        "differentiation_analyst",
+        "risk_catalyst_analyst",
+        "reviewer",
+        "writer"
+      ],
+      "script_only_roles": [
+        "ops_scripts"
+      ],
+      "rule": "All reasoning-bearing IR subagents run with thinking=high by default; deterministic fetch/transform steps remain scripts and do not consume agent thinking budget.",
+      "runtime_command_equivalent": {
+        "reasoning": "/reasoning on",
+        "thinking": "/thinking high"
+      },
+      "note": "For IR reasoning agents, the intended runtime behavior is equivalent to enabling reasoning and setting thinking to high."
+    }
+  },
+  "storage": {
+    "final_reports_dir": "reports/",
+    "workflow_artifacts_dir": "data/tasks/",
+    "rule": "Final user-facing reports go to reports/. Intermediate workflow artifacts, evidence, reviewer outputs, and bundles go to data/tasks/."
+  },
+  "memory_boundary": {
+    "long_term": [
+      "memory_agent",
+      "instruction_store"
+    ],
+    "daily_log": [
+      "memory/YYYY-MM-DD.md"
+    ],
+    "lessons": [
+      ".learnings/"
+    ],
+    "status": "workspace-memory-primary",
+    "note": "OpenClaw native memory is not yet the primary store for this workflow."
+  },
+  "proactive_communication": {
+    "should_push_progress": true,
+    "keepalive_low_frequency": true,
+    "optimization_discussions_should_be_proactive": true
+  }
+}

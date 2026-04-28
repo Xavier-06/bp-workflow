@@ -1,15 +1,28 @@
-# BP Workflow Core Dependencies
+# ═══ IR/BP Workflow Core Dependencies ═══
+
+# HTTP & API
 requests>=2.28.0
+httpx>=0.24.0
+
+# Document generation
 python-docx>=0.8.11
 
-# Document parsing (optional — install what you need)
+# Financial data
+yfinance>=0.2.28
+
+# Search & scraping (optional — install what you need)
+# scrapling>=0.3.0          # Advanced web scraping with TLS fingerprinting
+# beautifulsoup4>=4.12.0    # HTML parsing fallback
+# lxml>=4.9.0               # XML/HTML processing
+
+# Document parsing (optional — for BP OCR input)
 # pdfminer.six>=20221105    # PDF text extraction
 # PyPDF2>=3.0.0             # PDF text extraction (alternative)
 # python-pptx>=0.6.21       # PPTX text + image extraction
 # pdf2image>=1.16.3         # PDF → PNG (requires poppler)
 
-# Search (optional — for search_gateway.py)
-# scrapling>=0.3.0          # Advanced web scraping with TLS fingerprinting
+# Vector memory (optional — for ChromaDB embedding search)
+# chromadb>=0.4.0
 
 # Notification plugins (optional — install what you need)
 # wechat-ilink-bot>=0.1.0   # WeChat notification

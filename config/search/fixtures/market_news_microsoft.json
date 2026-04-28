@@ -1,0 +1,30 @@
+{
+  "name": "market_news_microsoft",
+  "description": "Microsoft 科技公司新闻测试",
+  "task_type": "market_news",
+  "query": "Microsoft",
+  "company": "Microsoft",
+  "market": "us",
+  "ticker": "MSFT",
+  "freshness_hours": 72,
+  "max_results": 10,
+  "expected_min_kept_count": 1,
+  "must_not_contain_domains": [
+    "zhihu.com",
+    "zhidao.baidu.com",
+    "baike.baidu.com",
+    "baike.sogou.com",
+    "reddit.com",
+    "medium.com"
+  ],
+  "allowed_drop_reasons": [
+    "too_old",
+    "missing_publish_time",
+    "thin_content",
+    "untrusted_news_source",
+    "duplicate_url",
+    "duplicate_title",
+    "duplicate_similar_title"
+  ],
+  "note": "验证科技巨头新闻能被稳定召回"
+}

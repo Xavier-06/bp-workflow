@@ -29,26 +29,39 @@ env/
 .DS_Store
 Thumbs.db
 
-# Runtime data
+# Runtime data (generated at runtime, not versioned)
 jobs/
-tasks/
 data/
 logs/
 *.log
-
-# Build artifacts
-delivery/
+sessions/
 outputs/
+
+# Build artifacts (generated per job)
+delivery/
 extraction/
-search/
 verification/
 briefs/
 state/
 artifacts/
+reports/
 
 # Node (for SearXNG manager)
 node_modules/
 
+# SearXNG local instance
+tools/searxng/
+
+# Search cache
+search/cache/
+
 # Temporary
 *.tmp
 *.bak
+
+# Runtime search result files (text_*.json)
+text_*.json
+
+# Package lock (not needed for deployment)
+package-lock.json
+package.json
