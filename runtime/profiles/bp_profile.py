@@ -405,20 +405,46 @@ def _run_bp_synthesis_prepare(runtime_root: Path, job_ctx: JobContext) -> dict[s
         '## 你的任务\n'
         '读取四个维度分析报告（团队、技术、行业、竞争），重新组织为一份完整的投研报告。\n'
         '不是简单拼接——你要重新组织叙事逻辑，消除重复，补充交叉引用，写执行摘要。\n\n'
+        '## ⚠️ 脚注规则（最高优先级！）\n'
+        '这是用户最关心的问题之一，必须严格执行：\n'
+        '- 子代理输出中的 [^N] 脚注标记**必须完整保留**，不得在统稿时丢弃\n'
+        '- 统稿时如发现子代理输出缺少脚注，必须自行补上：正文中每个关键定量数据后加 [^N] 标记\n'
+        '- 关键定量数据 = 市场规模、营收、增速、估值、PS/PE 倍数、专利数、员工数、市占率、毛利率等任何带数字的关键断言\n'
+        '- 报告末尾必须放"来源与参考"章节，将 [^N] 展开为完整来源信息（来源名+URL+日期）\n'
+        '- 脚注编号统一重新编排（从 [^1] 开始连续编号），保证不冲突\n'
+        '- **绝对不能只在末尾堆来源表而不在正文引用**——正文中没有 [^N] 的数据等于没有来源\n\n'
+        '## 技术原理深写规则\n'
+        '- **技术原理必须给外行讲透**：不要假设读者懂行业术语。每个核心概念先用大白话解释"这东西到底在干什么"，再给技术细节\n'
+        '- 例如：不要只写"采用 RHBD 设计加固"，要解释"RHBD 就是在标准芯片上通过电路设计（如三重冗余投票）来抵抗太空辐射干扰，不需要特殊工艺线，成本较低但抗辐照能力有上限"\n'
+        '- 读者看完技术原理部分后，应该不需要再去搜索外部资料就能理解\n\n'
+        '## 专利精简规则\n'
+        '- 如果技术维度报告列了大量专利，只保留核心专利（≤5项），其余改为概括性描述\n'
+        '- 例如："另有 18 项专利覆盖设计加固细节和测试方法，详见知识产权附录"\n'
+        '- 不要全量堆砌专利列表\n\n'
+        '## 技术壁垒量化评估（必须独立成节）\n'
+        '- 读者看完报告后必须能明确回答三个问题：\n'
+        '  ① 壁垒到底有多高？（专利数vs竞品、认证周期、客户转换成本、人才稀缺度，每个都要有数字）\n'
+        '  ② 技术到底实不实用？（量产状态、真实客户是谁、收入贡献占比，不能只写"有应用前景"）\n'
+        '  ③ 到底能赚多少钱？（市场规模×渗透率×毛利率估算，给出具体数字区间）\n'
+        '- 每个判断都要有数据支撑和 [^N] 脚注\n\n'
         '## 输出结构（严格按此顺序）\n'
         '# 一、执行摘要\n'
         '一页纸讲清核心判断。分四段：技术层面、市场层面、竞争层面、拓展层面。\n'
         '每段 3-5 句话，必须有具体数据。这是整篇报告最重要的部分。\n\n'
         '# 二、技术原理深度分析\n'
-        '从技术维度报告中提取，补充技术路线对比表、核心组件拆解表。\n\n'
+        '从技术维度报告中提取，补充技术路线对比表、核心组件拆解表。\n'
+        '技术原理必须给外行讲透，不能只有术语没有解释。专利只保留核心≤5项，不堆砌。\n\n'
+        '# 二.5、技术壁垒量化评估\n'
+        '独立成节。必须回答：①壁垒多高？②实用性多强？③能赚多少钱？\n'
+        '每个判断配具体数字和[^N]脚注。\n\n'
         '# 三、技术在目标场景中的独特价值与痛点解决\n'
-        '按场景拆分（如消防/防暴），每个场景列具体痛点+数据+电磁方案如何解决。\n\n'
+        '按场景拆分，每个场景列具体痛点+数据+方案如何解决。\n\n'
         '# 四、现有方案深度对比\n'
-        '大对比表（横向对比 8-10 个维度），含价格。分抛投器和非致命武器两个表。\n\n'
+        '大对比表（横向对比 8-10 个维度），含价格。\n\n'
         '# 五、市场现有厂商情况\n'
         '全球+国内厂商对比表，竞争格局判断。\n\n'
         '# 六、市场规模独立推算\n'
-        '从行业维度报告中提取，必须有分场景推算表和汇总表。\n\n'
+        '必须有分场景推算表和汇总表。\n\n'
         '# 七、民用场景与产品拓展\n'
         '按时间线分梯队（1-3年/3-5年/5-10年+），每个场景评可行性星级。\n\n'
         '# 八、BP核心逻辑独立验证\n'
@@ -427,6 +453,8 @@ def _run_bp_synthesis_prepare(runtime_root: Path, job_ctx: JobContext) -> dict[s
         '按类别分：技术/市场/竞争/政策/经营。每条风险要具体。\n\n'
         '# 十、综合结论与建议\n'
         '核心判断（2-3段）+ 投资建议（是否进入尽调+尽调重点清单）+ 估值建议。\n\n'
+        '# 来源与参考\n'
+        '将正文中所有 [^N] 脚注展开为完整来源信息，格式：[^N] 来源名称 — URL (日期)\n\n'
         '## 写作规范\n'
         '- 用中文写作，语言专业但不晦涩\n'
         '- 表格是核心信息载体，至少 8 个表格\n'
@@ -585,31 +613,36 @@ def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
     except Exception:
         pass
 
-    # 通知插件（可选：微信/Slack/飞书等，需在 scripts/notify_plugin.py 实现）
-    # 如果 scripts/notify_plugin.py 不存在，跳过通知
+    # 微信通知（三步发送：文本→文件→确认，失败自动重试1次）
+    # ⚠️ iLink SDK context_token 过期时 ret=-2 但不抛异常，需检查 file_sent 字段
+    wechat_result = None
     if docx_path:
-        try:
-            sys.path.insert(0, str(runtime_root))
-            from scripts.notify_plugin import notify_report
-            
-            dimension_count = len(dimension_outputs)
-            total_dimensions = len(file_map) if 'file_map' in dir() else dimension_count
-            
-            for attempt in range(2):
-                result = notify_report(
+        for attempt in range(2):
+            try:
+                sys.path.insert(0, str(runtime_root))
+                from scripts.longshao_notify import notify_bp_report
+                
+                dimension_count = len(dimension_outputs)
+                total_dimensions = len(file_map) if 'file_map' in dir() else dimension_count
+                
+                result = notify_bp_report(
                     task_id=job_ctx.job_id,
                     docx_path=docx_path,
                     dimension_count=dimension_count,
                     total=total_dimensions,
                 )
-                if result.get('ok'):
+                wechat_result = result
+                # 检查文件是否真正发送成功（file_sent=False 说明 context_token 可能过期）
+                if result.get('ok') and result.get('file_sent', True):
+                    break
+                if result.get('ok') and not result.get('file_sent', True):
+                    print(f"  ⚠ 微信文本通知成功但文件发送可能失败（context_token 可能过期），请检查微信", flush=True)
                     break
                 if attempt == 0:
-                    print(f"  ⚠ 通知第{attempt+1}次失败: {result.get('msg', '未知错误')}，重试中...")
-        except ImportError:
-            print("  ℹ️ notify_plugin.py 未安装，跳过通知推送", flush=True)
-        except Exception as e:
-            print(f"  ⚠ 通知异常: {e}", flush=True)
+                    print(f"  ⚠ 微信通知第{attempt+1}次失败: {result.get('msg', '未知错误')}，重试中...", flush=True)
+            except Exception as e:
+                if attempt == 0:
+                    print(f"  ⚠ 微信通知第{attempt+1}次异常: {e}，重试中...", flush=True)
 
     dimensions_total = len(file_map) if 'file_map' in dir() else len(dimension_outputs)
     return {

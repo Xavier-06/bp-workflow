@@ -96,17 +96,12 @@ def _slug(role_name: str) -> str:
 
 
 def notify_wx(text: str) -> bool:
-    """Optional notification plugin. Returns True if notification sent successfully."""
     try:
         sys.path.insert(0, str(ROOT / 'scripts'))
-        from notify_plugin import send_message
+        from longshao_notify import send_message
 
         result = send_message(text)
         return result.get('ok', False)
-    except ImportError:
-        # notify_plugin.py not installed, skip notification
-        print("  ℹ️ notify_plugin.py 未安装，跳过通知", flush=True)
-        return False
     except Exception:
         return False
 
