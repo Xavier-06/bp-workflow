@@ -2,13 +2,13 @@
   "meta": {
     "version": 3,
     "created_at": "2026-03-31T16:37:00",
-    "updated_at": "2026-04-22T15:50:00",
+    "updated_at": "2026-04-28T15:00:00",
     "task_type": "bp_尽调类",
-    "description": "BP 尽调管线指令库 v3 — 对标一线 VC 研报标准（悦享资本/红杉/高瓴）",
+    "description": "BP 尽调管线指令库 — 与投研专题研报(instruction_store/)完全隔离",
     "changelog": [
       "v1 (2026-03-31): 初始版本，6 角色编组",
-      "v2 (2026-04-02): 全部子代理新增 SearXNG 调用示例 + DDG fallback + 证据质量评分(🅰🅱🅲)",
-      "v3 (2026-04-22): 全面升级对标投研报告标准。子代理从尽调checklist升级为投研报告章节写作。新增统稿角色。废弃护城河锚定（已合并到技术维度）。清理旧版BP_DD_*指令。搜索模板扩展。"
+      "v2 (2026-04-02): 全部子代理新增搜索调用示例 + fallback + 证据质量评分(🅰🅱🅲)",
+      "v3 (2026-04-28): 护城河锚定分析合并入 Phase 0.5（Company Verify），不再作为独立角色"
     ]
   },
   "roles": [
@@ -16,44 +16,37 @@
       "key": "bp_主管",
       "name": "BP 尽调主管",
       "file": "bp_主管.md",
-      "description": "主控编排 + 管线调度 + 交付"
+      "description": "主控编排 + Step 0 前置判断（融资阶段/商业模式/对标对象）+ Phase 0.5 护城河锚定"
     },
     {
       "key": "bp_团队与合规",
       "name": "团队与合规分析师",
       "file": "bp_团队与合规.md",
-      "description": "维度 1: 公司主体验证 + 团队深度分析 + 合规风险"
+      "description": "维度 1: 创始人履历验证 + 法律风险 + 行业口碑"
     },
     {
       "key": "bp_技术与产品",
       "name": "技术与产品分析师",
       "file": "bp_技术与产品.md",
-      "description": "维度 2+3: 技术原理深度分析 + 痛点解决 + 方案对比大表 + BP技术声称验证"
+      "description": "维度 2+3: 技术路线祛魅 + 产品买家秀"
     },
     {
       "key": "bp_行业与供应链",
       "name": "行业与供应链分析师",
       "file": "bp_行业与供应链.md",
-      "description": "维度 4+5: 市场规模独立推算 + 厂商格局 + 民用拓展分梯队 + 供应链分析"
+      "description": "维度 4+5: 产业趋势冷思考 + 产业链控制力"
     },
     {
       "key": "bp_竞争与结论",
       "name": "竞争与结论分析师",
       "file": "bp_竞争与结论.md",
-      "description": "维度 6 + Deal Breakers: 竞争格局 + BP逻辑验证 + 风险五类 + 投资建议 + 估值建议"
+      "description": "维度 6 + Deal Breakers: 竞争格局 + 投资结论"
     },
     {
       "key": "bp_统稿",
-      "name": "统稿分析师",
+      "name": "BP 统稿分析师",
       "file": "bp_统稿.md",
-      "description": "Wave 3: 读取四个维度输出，按投研逻辑重组为完整报告（执行摘要→技术→痛点→对比→竞争→市场→拓展→验证→风险→结论）"
-    }
-  ],
-  "deprecated": [
-    {
-      "key": "bp_护城河锚定",
-      "file": "bp_护城河锚定.md.deprecated",
-      "reason": "v3 废弃，护城河分析已合并到技术与产品维度的'BP技术声称验证'章节"
+      "description": "四维度汇总 → 投研逻辑重组 → 完整研报输出"
     }
   ]
 }

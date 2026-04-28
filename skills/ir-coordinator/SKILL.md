@@ -186,8 +186,8 @@ result = finalize_pipeline(task_id, entity, market)
 - `finalize_pipeline()` **必须执行**（全自动：质检 → DOCX → 桌面 → 微信通知）
 - DOCX 失败 → 用 markdown 兜底
 - **研报必须复制到桌面**
-- **微信通知必须尝试发送**（通过 `notify_plugin.py（支持微信/Slack/飞书等））
-  - ⚠️ `notify_plugin.py` 已升级为三步发送（文本通知→文件→确认文本）
+- **微信通知必须尝试发送**（通过 `longshao_notify.py` → wechat_bot SDK）
+  - ⚠️ `longshao_notify.py` 已升级为三步发送（文本通知→文件→确认文本）
   - 如果 `--file` 调用返回 `ok: false`，必须重试一次
   - 即使返回 `ok: true`，也要提醒用户检查微信是否收到（SDK send_file 静默失败不抛异常）
 - 交付完成后，在聊天窗口告知用户文件完整路径
@@ -232,7 +232,10 @@ result = finalize_pipeline(task_id, entity, market)
 
 **Wave 3 统稿子代理**：
 - 读取四个维度输出，按投研逻辑重组为完整研究报告（对标悦享资本/红杉/高瓴研报水准）
-- 输出结构：执行摘要→技术原理→痛点解决→方案对比→厂商情况→市场规模→民用拓展→BP验证→风险→结论建议
+- 输出结构：执行摘要→技术原理（外行能懂）→技术壁垒量化评估→痛点解决→方案对比→厂商情况→市场规模→民用拓展→BP验证→风险→结论建议
+- **脚注硬规则**：子代理 [^N] 标记必须保留，统稿时补全缺失脚注，正文每个关键数据点都要有 [^N]，末尾"来源与参考"展开
+- **专利不堆砌**：核心≤5项，其余概括性描述
+- **技术壁垒量化评估**必须独立成节（壁垒高度+实用性+赚钱能力，全部配数字和脚注）
 - 必须用 team 异步模式派发：`task(name='bp-synthesis', team_name=..., mode='bypassPermissions')`
 - manifest 路径：`{task_dir}/bp_phase3_manifest_synthesis.json`
 - 输出路径：`{outputs_dir}/bp_synthesis.md`
@@ -303,8 +306,8 @@ BP 管线：**全自动交付**（无需手动步骤）：
    - 绝对不能跳过 team 清理就结束对话
 
 5. **VL OCR API 配置**（代码 default 已内置，无需手动设环境变量）：
-   - `VL_API_BASE`: `https://YOUR_VL_API_BASE`
-   - `VL_API_KEY`: 需通过环境变量 `VL_API_KEY` 配置
+   - `VL_API_BASE`: `https://api.tokenpony.cn/v1`
+   - `VL_API_KEY`: `sk-88aeca1b77f74b24944a11bee4ae606f`（小马算力，default 已写死）
    - `VL_MODEL`: `qwen3-vl-30b-a3b-instruct`
 
 ## Workspace 产物结构
