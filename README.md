@@ -1,152 +1,193 @@
-# IR/BP Dual-Pipeline: AI-Powered Investment Research & Due Diligence
+# 🐲 IR/BP Workflow
 
-> A production-grade, fully automated research workflow for WorkBuddy / OpenClaw platforms. From data collection to broker-grade DOCX report delivery — zero human intervention.
+> AI 驱动的投研（IR）+ 商业计划书尽调（BP）双管线工作流，专为 WorkBuddy / OpenClaw 平台设计。
+> 从数据采集到研报交付，全自动运行，零人工干预。
 
----
-
-## What Problem Does This Solve?
-
-### 1. AI Research That Actually Goes Deep
-Most AI research tools (Perplexity, ChatGPT) produce "glorified Google summaries" — they stack public information without investment-grade analytical depth. A real equity research report requires 8 systematic dimensions (data, industry, business model, financials, management, insights, risks, synthesis). Single-turn chat can't do this.
-
-### 2. Multi-Agent Coordination That Doesn't Fall Apart
-Existing agent frameworks (AutoGPT, CrewAI) suffer from: agents dying with `code=10003`, context window breaks, inconsistent data formats, and manual stitching. We built a **stateful orchestrator** with unified phase tracking, manifest-based dispatch, and automatic retry — so the pipeline recovers from any interruption.
-
-### 3. BP Due Diligence Without the Information Asymmetry
-Early-stage startup DD faces two extremes: trusting the founder's narrative (biased) or hiring expensive consultants (slow, costly). This pipeline automates the full chain: **VL OCR → structured extraction → 4-dimension parallel analysis → competitive landscape → synthesis → DOCX delivery** in under 30 minutes.
-
-### 4. The "Last Mile" Delivery Gap
-Models often forget to copy the report to desktop, convert to DOCX, or send the WeChat notification. Our pipeline has a **mandatory finalize step** with adversarial verification → DOCX generation → desktop copy → WeChat push (3-step protocol). No report gets lost.
-
----
-
-## Core Architecture
-
-### PipelineOrchestrator + Profile Pattern
-
-Two pipelines share one orchestration kernel. The difference is defined by Profile:
+## 🏗️ 双管线架构
 
 ```
-PipelineOrchestrator
-├── IR Pipeline (8 phases, 4 waves)
-│   ├── phase0_preflight          → Environment check + job registration
-│   ├── phase05_company_verify    → yfinance valuation data
-│   ├── phase1_presearch          → 8-step pre-search (SearXNG/DDG/Scrapling)
-│   ├── phase15_extract           → URL content extraction (3-tier fallback)
-│   ├── phase4_dispatch_prepare   → launch_next_wave() emits wave
-│   │   └── Coordinator loop: team_create() → task(name=..., team_name=...) → poll outputs
-│   ├── phase4_dispatch_collect   → Quality gate check
-│   └── phase5_delivery           → finalize_pipeline() fully automated
-│       (quality check → DOCX → desktop → WeChat notification)
-│
-└── BP Pipeline (8 phases, 3 waves)
-    ├── phase0_document_intake     → VL OCR + structured extraction
-    ├── phase05_company_verify     → Business registry / risk / founder verification
-    ├── phase1_presearch           → 4-dimension pre-search
-    ├── phase2_dispatch_prepare    → Wave 1: team + tech + industry (parallel)
-    ├── phase25_competition_prepare → Wave 2: competition + conclusion
-    └── phase3_delivery            → Synthesis + consistency check + DOCX + WeChat
+┌─────────────────────────────────────────────────────────────────┐
+│                    ir-coordinator（调度中心）                     │
+│                    接收指令 → 识别管线 → 全自动执行               │
+├──────────────────────────┬──────────────────────────────────────┤
+│     IR 管线（8步研报）     │       BP 管线（尽调报告）            │
+│                          │                                      │
+│ Phase 0:  环境检测+注册    │ Phase 0:  VL OCR 文档识别            │
+│ Phase 0.5: 公司验证+估值   │ Phase 0.5: 工商/风险验证             │
+│ Phase 1:  8步预搜索       │ Phase 1:  4维度预搜索+URL提取         │
+│ Phase 1.5: URL内容提取     │ Phase 2:  3维度并行分析(Wave1)       │
+│ Phase 4:  4波子代理派发    │ Phase 2.5: 竞争与结论(Wave2)         │
+│   Wave1: 数据收集         │ Phase 3:  统稿+验证+DOCX交付         │
+│   Wave2: 行业/商业/财务/管理│                                      │
+│   Wave3: 洞察/风险        │                                      │
+│   Wave4: 统稿             │                                      │
+│ Phase 5:  对抗验证+DOCX   │                                      │
+│           +桌面+微信通知    │                                      │
+└──────────────────────────┴──────────────────────────────────────┘
+         ↓ 交付 ↓
+   📊 券商级研报 / DD尽调报告 (DOCX) → 桌面 + 微信通知
 ```
 
-### Long-Chain Reasoning: 8-Step Equity Research
+## ❓ 解决什么问题
 
-Not a single conversation — a **4-wave progressive reasoning chain** where each step depends on prior outputs:
+### 痛点一：AI 投研"浅尝辄止"
+市面 AI 研报工具只能生成"资料汇编"——堆砌公开信息，缺乏投研逻辑深度。真正的券商研报需要 8 个维度的系统性分析（数据/行业/商业/财务/管理层/洞察/风险/统稿），单轮对话无法完成。
 
-| Wave | Steps | Reasoning Depth |
-|------|-------|-----------------|
-| Wave 1 | step1_data | Foundation: valuation, financials, market data |
-| Wave 2 | step2_industry + step3_biz + step4_finance + step5_mgmt | Parallel deep analysis (industry / business / financials / management) |
-| Wave 3 | step6_insight + step7_risk | Advanced reasoning (differentiated insights / risk catalysts) |
-| Wave 4 | step8_master | Synthesis: integrates all 7 prior steps into broker-grade report |
+### 痛点二：多 Agent 协作"各自为政"
+现有 Agent 框架（AutoGPT、CrewAI）的痛点：子 Agent 挂掉（code=10003）、上下文断裂、数据口径不一致、最终需要人工拼接。我们构建了**有状态编排器**——统一状态协调、manifest 派发、自动重试、断点续跑。
 
-**Key**: step6_insight reads step1+2+3 outputs; step7_risk reads step1+3+4 outputs. This is **genuine chain-of-thought**, not parallel independent tasks.
+### 痛点三：BP 尽调"信息黑洞"
+早期项目的 BP 尽调面临两难：创始人自说自话（信息偏差）vs 昂贵的人工尽调（成本高、周期长）。本管线自动化完成 **VL OCR → 结构化抽取 → 4 维度并行分析 → 竞争格局 → 统稿 → DOCX 交付**，30 分钟内完成全链路。
 
-### Multi-Agent Collaboration: 4 Roles + Team Async Mode
+### 痛点四：交付链路断裂
+研报写完了，但复制到桌面、转 DOCX、发微信通知——这些"最后一公里"经常被模型遗忘。管线有**强制 finalize 步骤**：对抗验证 → DOCX 生成 → 桌面复制 → 微信推送（三步协议），报告不会丢。
 
-```
-ir-coordinator (Orchestrator)
-    ├── team_create(team_name="ir-{task_id}")
-    │
-    ├── task(name="step2_industry", team_name=..., mode="bypassPermissions")
-    │   → ir-researcher (Data Collection Agent)
-    │     → reads manifest → autonomously fills data gaps → writes .md output
-    │
-    ├── task(name="step3_biz", team_name=..., mode="bypassPermissions")
-    │   → ir-researcher → same pattern
-    │
-    ├── ... (more steps dispatched in parallel)
-    │
-    ├── poll output files (sleep 30s → test -s → repeat)
-    │
-    ├── team_delete() (shutdown_request → wait 10s → delete)
-    │
-    └── finalize_pipeline()
-        → ir-reporter (Synthesis + DOCX Agent)
-        → ir-verifier (Adversarial Verification Agent, 6-layer)
-```
-
-**Critical Design Decisions**:
-- **Team async mode**: `task(name=..., team_name=...)` instead of synchronous `task()` — prevents `code=10003` crashes
-- **Autonomous closure**: Sub-agents detect data gaps and self-correct with up to 3 search rounds, never returning to coordinator
-- **Quality gates**: Step 1 completeness <50% → circuit breaker; cross-step consistency FAIL → mandatory fix; adversarial L6 → human-level argumentation
-- **Checkpoint resume**: Pipeline can resume from any phase after interruption — no restart from scratch
-
-### Search Subsystem: 3-Tier Degradation Chain
+## 📦 目录结构
 
 ```
-SearXNG (localhost:8888) → DuckDuckGo → Scrapling StealthyFetcher → requests + BeautifulSoup
+ir-bp-workflow/
+├── runtime/                     # 核心运行时（双管线共用）
+│   ├── orchestrator/            # 编排引擎
+│   │   ├── pipeline_orchestrator.py  # 主入口 submit/execute
+│   │   ├── kernel.py            # Phase 内核
+│   │   ├── state_store.py       # 统一状态协调
+│   │   ├── workspace_layout.py  # Job workspace 布局
+│   │   └── manifest.py          # 子代理派遣清单
+│   ├── profiles/                # 管线 Profile
+│   │   ├── base.py              # Profile 基类
+│   │   ├── ir_profile.py        # IR 管线定义
+│   │   └── bp_profile.py        # BP 管线定义
+│   ├── entrypoints/             # 管线入口
+│   ├── intake/                  # BP 文档入库 + VL OCR
+│   ├── delivery/                # 交付子系统
+│   └── verification/            # 验证子系统
+├── scripts/                     # 功能脚本（40+）
+│   ├── ir_subagent_launcher_wb.py   # IR 子代理发射器
+│   ├── bp_subagent_launcher_wb.py   # BP 子代理发射器
+│   ├── build_ir_broker_report_docx.py  # IR 研报 DOCX
+│   ├── build_bp_dd_report_docx.py   # BP DD DOCX
+│   ├── verification_agent.py    # 6层对抗验证
+│   ├── search_gateway.py        # 搜索网关
+│   ├── longshao_notify.py       # 微信通知
+│   └── ...
+├── instruction_store_ir/        # IR 角色指令库（8步）
+├── instruction_store_bp/        # BP 角色指令库（6维度）
+├── skills/                      # AI Agent Skill 定义
+│   ├── ir-coordinator/SKILL.md  # 🧠 调度中心
+│   ├── ir-researcher/SKILL.md   # 🔍 数据采集 Agent
+│   ├── ir-reporter/SKILL.md     # 📝 统稿 Agent
+│   └── ir-verifier/SKILL.md     # 🛡️ 对抗验证 Agent
+├── search/                      # 搜索子系统（7个适配器）
+├── research/                    # 研究子系统
+├── content/                     # 内容抓取（Scrapling 三层递进）
+├── memory/                      # 分层记忆（hot/warm/topics）
+├── config/                      # 配置文件
+├── docs/                        # 文档
+├── setup.sh                     # 🚀 一键安装脚本
+├── .env.example                 # 环境变量模板
+├── requirements.txt             # Python 依赖
+└── README.md
 ```
 
-7 search adapters (SearXNG / DDG / SEC / HKEX / Yahoo / Tavily / RSS) with entity resolution, query planning, and evidence grading.
-
-### Delivery Closure: The Full Last Mile
-
-```
-finalize_pipeline()
-├── Adversarial verification (6 layers: info leak / placeholder residue / internal contradiction / numeric validation / logic flaw / counter-argumentation)
-├── DOCX generation (sanitize_text scrubs all internal metadata)
-├── Copy to desktop
-└── WeChat notification (3-step protocol: text → file → confirmation)
-```
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Orchestration | Python 3.10+, PipelineOrchestrator (phase-driven) |
-| Search | SearXNG + DuckDuckGo + Scrapling (TLS fingerprint simulation) + 7 adapters |
-| Financial Data | yfinance + neodata-financial-search skill + westock-data skill |
-| Document Processing | python-docx (DOCX generation) + VL OCR (qwen3-vl for BP documents) |
-| Vector Memory | ChromaDB + qwen3-embedding-8b |
-| Notification | wechat-ilink-bot SDK (WeChat iLink protocol) |
-| Deployment | WorkBuddy / OpenClaw platform, 4 Skills (coordinator / researcher / reporter / verifier) |
-
----
-
-## Project Stats
-
-- **~200 Python files**, **~25,000 lines of code**
-- **Completed analyses**: AVGO, Pop Mart, UBTECH, Dongjiang Environmental, Hefei Aichuangwei
-- **Deliverables**: Broker-grade DOCX reports with executive summary, valuation analysis, risk matrix, and disclaimer
-- **Automation rate**: Phase 0–5 fully automated, Zero Human Intervention
-
----
-
-## Quick Start
+## 🚀 一键安装
 
 ```bash
-# One-line install
+# 一行命令安装
 curl -fsSL https://raw.githubusercontent.com/Xavier-06/ir-bp-workflow/main/setup.sh | bash
 
-# Or manual
+# 或手动安装
 git clone https://github.com/Xavier-06/ir-bp-workflow.git ~/.workbuddy/ir_runtime
 cd ~/.workbuddy/ir_runtime && bash setup.sh
-
-# Edit .env with your API keys, restart WorkBuddy, then say:
-# "Analyze BYD" or "Review this BP" — ir-coordinator handles the rest
 ```
+
+安装脚本自动完成：克隆仓库 → 安装 Python 依赖 → 创建 .env → 安装 4 个 Skills → 创建运行时目录 → 验证管线编排器
+
+### 前置条件
+
+- Python 3.10+
+- WorkBuddy 或 OpenClaw 平台
+- 可选：兼容 OpenAI API 的视觉模型（BP OCR 用）
+
+## 📋 使用方式
+
+### IR 管线：股票研报
+
+对话触发（推荐）：
+- "分析比亚迪"
+- "跑个研报看看腾讯"
+- "对优必选做个尽调"
+
+ir-coordinator 自动识别意图并启动 IR 管线。
+
+### BP 管线：商业计划书尽调
+
+对话触发（推荐）：
+- "帮我看下这个 BP" + 上传文件
+- "分析一下 XX 公司的商业计划书"
+
+## 🧠 核心设计
+
+### 长链推理：8 步 IR 研报
+
+4 个 wave、8 个 step 的渐进式推理链，每个 step 依赖前序输出：
+
+| Wave | Steps | 推理深度 |
+|------|-------|---------|
+| Wave 1 | step1_data | 基础数据（估值/财务/市场） |
+| Wave 2 | step2+3+4+5 | 并行深度分析（行业/商业/财务/管理层） |
+| Wave 3 | step6+7 | 高阶推理（差异化洞察/风险催化） |
+| Wave 4 | step8_master | 综合统稿（基于前 7 步完整输出） |
+
+### 多 Agent 协作：4 角色分工
+
+| Agent | 职责 | 触发方式 |
+|-------|------|---------|
+| **ir-coordinator** | 调度中心，编排全自动执行 | 用户对话直接触发 |
+| **ir-researcher** | 单维度数据采集，自主补搜闭环 | coordinator 内部调度 |
+| **ir-reporter** | 统稿 + DOCX + 对抗验证 + 交付 | coordinator 内部调度 |
+| **ir-verifier** | 6 层对抗验证（L1-L5 脚本 + L6 人工论证） | coordinator 内部调度 |
+
+### 搜索系统：三层降级链
+
+```
+SearXNG (8888) → DuckDuckGo → Scrapling StealthyFetcher → requests + BeautifulSoup
+```
+
+7 个适配器（SearXNG/DDG/SEC/HKEX/Yahoo/Tavily/RSS），支持实体解析、查询计划、证据评级。
+
+### 质量门禁
+
+- Step1 完整性 <50% → 熔断
+- 跨 Step 一致性 FAIL → 必须修正
+- 完成率 <50% → 阻断交付
+- 对抗验证 L6 → 主动找证据推翻结论
+
+### 全自动交付
+
+```
+finalize_pipeline() → 对抗验证 → DOCX 生成 → 桌面复制 → 微信通知
+```
+
+## 🎯 设计理念
+
+1. **Phase 驱动** — 管线由 Phase 序列组成，可独立运行/暂停/恢复
+2. **Profile 模式** — IR/BP 共享编排内核，Profile 定义差异
+3. **子代理自主闭环** — 数据缺口时自主补搜，不回主控等待
+4. **搜索可插拔** — 网关抽象层，支持多种搜索引擎/插件
+5. **断点续跑** — 中断后从任意 Phase 恢复
+6. **交付清洗** — 报告绝不暴露内部路径/Task ID
+7. **Zero Human Intervention** — 全自动推进，无需发"继续"
+
+## 📊 项目数据
+
+- **~200 个 Python 文件**，**~25,000 行代码**
+- **已分析标的**：AVGO、泡泡玛特、优必选、东江环保、合肥艾创微等
+- **交付物**：券商级 DOCX 研报（执行摘要 + 估值分析 + 风险矩阵 + 免责声明）
+- **自动化率**：Phase 0-5 全自动
+
+## 📄 License
+
+MIT License
 
 ---
 
