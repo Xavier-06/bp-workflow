@@ -523,7 +523,11 @@ class AdversarialVerifier:
     def check_bp_specific(self, text: str):
         """
         BP 尽调特有验证（对标 free-code 的 type-specific strategy）
+        v2: 增加针对历史报告缺陷的专项检查（Anti-Defect Checks）
         """
+
+        # === 原有检查 ===
+
         # 估值分析（对标 free-code 的 "run the build first"）
         has_valuation = any(kw in text for kw in
                           ['估值', '投前', '投后', '估值模型', 'valuation',
@@ -583,12 +587,201 @@ class AdversarialVerifier:
                 result='PASS',
             ))
 
+        # === v2: Anti-Defect Checks（通用规则，不限行业） ===
+
+        # ADC-1: 产品矩阵独立性检查
+        product_keywords = ['产品线', '产品矩阵', '产品总览', '核心产品']
+        tech_keywords = ['技术原理', '技术壁垒', '技术路线']
+        product_positions = [text.find(kw) for kw in product_keywords if text.find(kw) >= 0]
+        tech_positions = [text.find(kw) for kw in tech_keywords if text.find(kw) >= 0]
+        if product_positions and tech_positions:
+            first_product = min(product_positions)
+            first_tech = min(tech_positions)
+            if first_tech < first_product:
+                self.checks.append(VerificationCheck(
+                    name='BP Anti-Defect: 产品矩阵顺序',
+                    verification='检查产品章节是否在技术章节之前',
+                    output='技术章节出现在产品章节之前，违反"先产品再技术"铁律',
+                    result='FAIL',
+                    detail='报告结构必须先呈现完整产品矩阵，再做技术深度分析'
+                ))
+            else:
+                self.checks.append(VerificationCheck(
+                    name='BP Anti-Defect: 产品矩阵顺序',
+                    verification='检查产品章节是否在技术章节之前',
+                    output='产品章节在技术章节之前，结构正确',
+                    result='PASS',
+                ))
+        elif not product_positions:
+            self.checks.append(VerificationCheck(
+                name='BP Anti-Defect: 产品矩阵独立性',
+                verification='检查是否存在独立的产品矩阵章节',
+                output='未发现产品矩阵/产品线总览相关内容',
+                result='FAIL',
+                detail='报告必须包含独立的产品矩阵深度拆解章节'
+            ))
+
+        # ADC-2: 强行绑定技术路线检查
+        combo_patterns = [
+            r'[A-Za-z\u4e00-\u9fff]{2,10}(?:\+|加|与|和)[A-Za-z\u4e00-\u9fff]{2,10}(?:双(?:重|线|路)|联合|复合)',
+            r'双重(?:加固|路线|方案|技术)',
+            r'联合(?:路线|方案|技术)',
+            r'复合(?:路线|方案|技术)',
+        ]
+        combo_found = []
+        for pat in combo_patterns:
+            matches = list(re.finditer(pat, text, re.IGNORECASE))
+            for m in matches:
+                context = text[max(0, m.start()-50):m.end()+50]
+                combo_found.append(context[:120])
+        if combo_found:
+            has_bp_evidence = any('BP' in c or 'bp' in c.lower() or '原文' in c for c in combo_found)
+            if not has_bp_evidence:
+                self.checks.append(VerificationCheck(
+                    name='BP Anti-Defect: 技术路线强行绑定',
+                    verification='检测组合技术路线声称是否有BP原文证据',
+                    output=f'发现组合技术路线声称但无BP原文关联证据: {combo_found[0][:80]}',
+                    result='FAIL',
+                    detail='BP分别提到的技术点不能自行组合为"双路线"，必须有BP原文明确关联的证据'
+                ))
+            else:
+                self.checks.append(VerificationCheck(
+                    name='BP Anti-Defect: 技术路线强行绑定',
+                    verification='检测组合技术路线声称是否有BP原文证据',
+                    output='组合技术路线声称有BP原文关联证据',
+                    result='PASS',
+                ))
+
+        # ADC-3: 财务数据自相矛盾检查
+        no_audit_patterns = ['无第三方审计', '未经审计', '无审计佐证', '未经验证']
+        ps_patterns = [r'PS\s*(?:≈|约|=|为)\s*\d', r'市销率\s*(?:≈|约|=|为)\s*\d']
+        has_no_audit = any(kw in text for kw in no_audit_patterns)
+        has_ps_calc = any(re.search(p, text) for p in ps_patterns)
+        if has_no_audit and has_ps_calc:
+            self.checks.append(VerificationCheck(
+                name='BP Anti-Defect: 财务数据自相矛盾',
+                verification='检测是否同时质疑数据真实性又用其做估值计算',
+                output='报告同时声称"无第三方审计"又用该数据计算PS估值，逻辑自相矛盾',
+                result='FAIL',
+                detail='如果质疑数据可靠性，估值中必须标注"据BP披露，未经第三方审计"；如果用于计算则不应同时质疑'
+            ))
+
+        # ADC-4: 企查查IP数据局限性检查
+        ipr_doubt_patterns = ['知识产权.*存疑', '无法完全验证.*知识产权', 'IPR.*无法验证']
+        has_ipr_doubt = any(re.search(p, text) for p in ipr_doubt_patterns)
+        has_layout_design_note = '布图设计' in text and ('国家知识产权局' in text or 'CNIPA' in text or '企查查未收录' in text)
+        if has_ipr_doubt and not has_layout_design_note:
+            self.checks.append(VerificationCheck(
+                name='BP Anti-Defect: 知识产权验证不完整',
+                verification='检测知识产权存疑结论是否考虑了企查查不含布图设计的局限性',
+                output='知识产权存疑结论未说明企查查不含集成电路布图设计，可能误导',
+                result='FAIL',
+                detail='企查查专利数据库不收录集成电路布图设计，"查不到"≠"不存在"，必须说明数据源局限性'
+            ))
+
+        # ADC-5: 市场规模推算参数检查
+        sizing_section = ''
+        for kw in ['市场规模', '市场推算', 'TAM', 'SAM', 'SOM']:
+            pos = text.find(kw)
+            if pos >= 0:
+                sizing_section = text[pos:pos+2000]
+                break
+        if sizing_section:
+            has_range = any(kw in sizing_section for kw in ['乐观', '保守', '中性', '区间', '上限', '下限', '基准', 'bull', 'bear', 'base'])
+            if not has_range and len(sizing_section) > 500:
+                self.checks.append(VerificationCheck(
+                    name='BP Anti-Defect: 市场规模推算参数',
+                    verification='检查市场规模推算是否给了范围而非单点值',
+                    output='市场规模推算仅有单点值，未提供乐观/中性/保守范围',
+                    result='WARN',
+                    detail='市场规模推算应给出乐观/中性/保守三档，避免选择性使用下限'
+                ))
+
+        # ADC-6: 可比公司匹配度检查
+        valuation_section = ''
+        for kw in ['可比公司', '估值锚定', '估值对比', '估值方法']:
+            pos = text.find(kw)
+            if pos >= 0:
+                valuation_section = text[pos:pos+1000]
+                break
+        if valuation_section:
+            vertical_keywords = ['军工', '军品', '航天', '航空', '车规', 'AEC-Q',
+                                '核工业', '高端装备', '专精特新', '国产替代',
+                                '专有', '细分', '垂直', '特种']
+            company_context = text[:3000]
+            is_vertical = any(kw in company_context for kw in vertical_keywords)
+            if is_vertical:
+                has_vertical_comparable = any(kw in valuation_section for kw in
+                    ['vertical', 'specialized', 'niche', '同赛道', '同细分',
+                     '垂直', '细分领域', '同行业'])
+                if not has_vertical_comparable:
+                    self.checks.append(VerificationCheck(
+                        name='BP Anti-Defect: 可比公司匹配度',
+                        verification='检测可比公司是否与公司垂直业务属性匹配',
+                        output='垂直领域公司未使用同赛道可比公司，估值锚定可能偏低',
+                        result='WARN',
+                        detail='垂直/细分领域公司应选用同赛道可比公司（估值中枢通常高于通用型），不能只用通用型公司锚定'
+                    ))
+
+        # ADC-7: 尽调优先级检查
+        dd_section = ''
+        for kw in ['尽调', '尽调建议', '尽调重点', 'P0', '尽调清单']:
+            pos = text.find(kw)
+            if pos >= 0:
+                dd_section = text[pos:pos+1500]
+                break
+        if dd_section:
+            core_p0 = ['财务审计', '客户订单', '营收拆分', '专利有效', '第三方审计']
+            secondary = ['EDA替代', 'EDA预案', '关键人缓释']
+            has_core = any(kw in dd_section for kw in core_p0)
+            has_secondary_as_p0 = any(kw in dd_section[:500] for kw in secondary)
+            if has_secondary_as_p0 and not has_core:
+                self.checks.append(VerificationCheck(
+                    name='BP Anti-Defect: 尽调优先级',
+                    verification='检测P0尽调项是否为核心项目',
+                    output='P0尽调项为EDA/关键人等次要项，缺少财务审计/客户订单/营收拆分等核心项',
+                    result='FAIL',
+                    detail='P0应为：财务审计+客户订单真实性+营收拆分+专利有效性；EDA/关键人应为P2'
+                ))
+
+        # ADC-8: 风险缓释因素检查
+        risk_keywords = ['风险', '隐患', '威胁']
+        mitigation_keywords = ['缓释', '对冲', '缓解', '抵消', '改善', '保障', '激励', '竞业']
+        risk_positions = [text.find(kw) for kw in risk_keywords if text.find(kw) >= 0]
+        if risk_positions:
+            risk_area = text[min(risk_positions):min(risk_positions)+3000]
+            has_mitigation = any(kw in risk_area for kw in mitigation_keywords)
+            if not has_mitigation and len(risk_area) > 1000:
+                self.checks.append(VerificationCheck(
+                    name='BP Anti-Defect: 风险缓释因素',
+                    verification='检查风险分析是否包含缓释/对冲因素',
+                    output='风险分析仅列风险未评估缓释因素',
+                    result='WARN',
+                    detail='每条重大风险应同时评估现有缓释措施（如股权激励、竞业协议、国产替代等）'
+                ))
+
+        # ADC-9: 行业技术路线全景对比缺失检查
+        if '技术' in text or '技术原理' in text or '技术壁垒' in text:
+            roadmap_indicators = [
+                '路线对比', '技术路线对比', '主流技术路线', '技术方案对比',
+                '路线总表', '路线全景', '行业技术路线',
+                'technology roadmap', 'technology comparison', 'route comparison'
+            ]
+            has_roadmap_comparison = any(ind in text for ind in roadmap_indicators)
+            if not has_roadmap_comparison:
+                self.checks.append(VerificationCheck(
+                    name='BP Anti-Defect: 行业技术路线全景对比缺失',
+                    verification='检查技术部分是否包含行业主流技术路线对比表',
+                    output='技术部分缺少行业主流技术路线全景对比——读者无法判断标的公司技术竞争力',
+                    result='FAIL',
+                    detail='必须在技术分析前呈现行业全部主流技术路线对比表（路线/原理/性能/成本/成熟度/代表企业/市场份额），标注标的公司采用哪条路线。缺失此表 = 报告不合格。'
+                ))
+
     # ────────── IR 专用验证 ──────────
     def check_ir_specific(self, text: str, steps: dict = None):
         """
         IR 研报特有验证
         """
-        # 财务数据来源（对标 free-code 的 "verify response shapes against expected"）
         has_financial = any(kw in text for kw in
                           ['财报', '年报', '季报', 'annual', 'filing',
                            '10-K', '20-F', 'HKEX', '年报披露',
@@ -609,7 +802,6 @@ class AdversarialVerifier:
                 result='PASS',
             ))
 
-        # 同业对比（对标 free-code 的 "spot-check observable behavior"）
         has_peer = any(kw in text for kw in
                       ['同业', '可比', 'peer', '对标', '相比', '对比',
                        '同行', '行业平均', '行业均值'])
@@ -633,15 +825,6 @@ class AdversarialVerifier:
     def run(self, text: str, steps: dict = None) -> dict:
         """
         运行全部 6 类验证 + 管线专用验证。
-
-        对标 free-code 的 REQUIRED STEPS：
-        1. Read → 2. Build → 3. Tests → 4. Lint → 5. Regressions
-        - L1 = Read（内容是否有泄露）
-        - L2 = Tests（占位残留 = 测试不完整）
-        - L3 = Regressions（矛盾 = 前后不一致）
-        - L4 = Lint（数字声明必须有来源 = 格式要求）
-        - L5 = Build（逻辑完整性 = 基本通过才往下走）
-        - L6 = Adversarial（对标 free-code 的 core 特色）
         """
         if not text or len(text.strip()) < 200:
             return {
@@ -664,7 +847,7 @@ class AdversarialVerifier:
         else:
             self.check_ir_specific(text, steps)
 
-        # 计算 verdict（对标 free-code 的 VERDICT: PASS/FAIL/PARTIAL）
+        # 计算 verdict
         fail_count = sum(1 for c in self.checks if c.result == 'FAIL')
         warn_count = sum(1 for c in self.checks if c.result == 'WARN')
         pass_count = sum(1 for c in self.checks if c.result == 'PASS')
@@ -690,13 +873,6 @@ class AdversarialVerifier:
 
 # ── 报告输出 ──────────────────────────────────────────────────
 def format_verification_report(result: dict, report_type: str = 'ir') -> str:
-    """
-    对标 free-code 的 OUTPUT FORMAT：
-    ### Check: [name]
-    **Verification:** [what was done]
-    **Output:** [observed result]
-    **Result:** PASS/FAIL/WARN
-    """
     lines = []
     lines.append(f"# Adversarial Verification Report ({report_type})")
     lines.append('')
@@ -734,9 +910,6 @@ def run_verification(task_id: str, pipeline: str = 'ir',
                     tasks_dir: Path = None) -> dict:
     """
     管线调用入口。供 run_ir_pipeline.py 和 run_bp_pipeline.py 使用。
-
-    Returns:
-        dict with verdict, checks, summary
     """
     if tasks_dir is None:
         tasks_dir = TASKS_DIR

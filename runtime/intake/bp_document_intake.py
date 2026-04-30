@@ -23,8 +23,8 @@ from typing import Any, Optional
 import requests
 
 # ── 配置 ──────────────────────────────────────────────
-VL_API_BASE = os.environ.get("VL_API_BASE", "https://YOUR_VL_API_BASE")
-VL_API_KEY = os.environ.get("VL_API_KEY", "")
+VL_API_BASE = os.environ.get("VL_API_BASE", "https://api.tokenpony.cn/v1")
+VL_API_KEY = os.environ.get("VL_API_KEY", "sk-88aeca1b77f74b24944a11bee4ae606f")
 VL_MODEL = os.environ.get("VL_MODEL", "qwen3-vl-30b-a3b-instruct")
 
 # 支持的文件类型
@@ -64,12 +64,12 @@ def _extract_images_from_pptx(pptx_path: Path, output_dir: Path) -> list[Path]:
 
 def _render_pptx_with_libreoffice(pptx_path: Path, work_dir: Path) -> Optional[Path]:
     """用 LibreOffice 把 PPTX/PPT 渲染为逐页 PNG。
-    
+
     流程：PPTX → PDF（LibreOffice headless）→ 逐页 PNG（pdftoppm）
     返回 PNG 目录路径，失败返回 None。
     """
     import subprocess
-    
+
     # 查找 LibreOffice
     soffice = shutil.which("soffice") or shutil.which("libreoffice")
     if not soffice:
@@ -79,11 +79,11 @@ def _render_pptx_with_libreoffice(pptx_path: Path, work_dir: Path) -> Optional[P
             soffice = str(mac_path)
     if not soffice:
         return None
-    
+
     # 输出目录
     render_dir = work_dir / "rendered_slides"
     render_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Step 1: PPTX → PDF
     try:
         result = subprocess.run(
@@ -95,17 +95,17 @@ def _render_pptx_with_libreoffice(pptx_path: Path, work_dir: Path) -> Optional[P
             return None
     except Exception:
         return None
-    
+
     # 找到生成的 PDF
     pdf_files = list(render_dir.glob("*.pdf"))
     if not pdf_files:
         return None
     pdf_path = pdf_files[0]
-    
+
     # Step 2: PDF → 逐页 PNG（pdftoppm）
     png_dir = work_dir / "slide_pngs"
     png_dir.mkdir(parents=True, exist_ok=True)
-    
+
     pdftoppm = shutil.which("pdftoppm")
     if pdftoppm:
         try:
@@ -120,7 +120,7 @@ def _render_pptx_with_libreoffice(pptx_path: Path, work_dir: Path) -> Optional[P
                 return png_dir
         except Exception:
             pass
-    
+
     # Fallback: pdf2image Python 包
     try:
         from pdf2image import convert_from_path
@@ -134,7 +134,7 @@ def _render_pptx_with_libreoffice(pptx_path: Path, work_dir: Path) -> Optional[P
         pass
     except Exception:
         pass
-    
+
     # 都失败了，清理
     pdf_path.unlink(missing_ok=True)
     return None
@@ -200,46 +200,91 @@ def _ocr_image(image_path: Path, page_hint: str = "") -> str:
     return _vl_chat(messages, max_tokens=4096)
 
 
-def _ocr_pdf(pdf_path: Path, output_dir: Path) -> str:
-    """OCR PDF — 尝试用 VL 模型逐页处理。
-    
-    对于 PDF，尝试用 base64 直接传给 VL。
-    如果模型不支持 PDF 输入，则回退到提取文字（pdfminer/py pdf 等）。
+def _ocr_pdf(pdf_path: Path, output_dir: Path) -> tuple[str, int]:
+    """OCR PDF — 优先逐页渲染为 PNG 后 VL OCR，确保多页完整处理。
+
+    返回 (ocr_text, pages_processed)。
+
+    策略：
+    1. pdf2image 逐页转 PNG → VL OCR（最完整，覆盖图表/图片）
+    2. 整份 PDF base64 直接传 VL（部分模型只读首页，作为 fallback 补充）
+    3. pdfminer / PyPDF2 纯文字提取（最后兜底）
     """
-    # 方法 1: 直接把 PDF 作为文档传给 VL（部分模型支持）
+    pages_processed = 0
+
+    # 方法 1（首选）: pdf2image 逐页转 PNG → VL OCR
+    try:
+        from pdf2image import convert_from_path
+        print(f"  📄 PDF 逐页渲染 (pdf2image) ...", flush=True)
+        images = convert_from_path(str(pdf_path), dpi=200, thread_count=4)
+        total_pages = len(images)
+        print(f"  📄 共 {total_pages} 页，开始逐页 VL OCR ...", flush=True)
+        page_texts = []
+        for i, img in enumerate(images, 1):
+            try:
+                # PIL Image → base64
+                import io as _io
+                img_byte = _io.BytesIO()
+                img.save(img_byte, format='JPEG', quality=90)
+                img_b64 = base64.b64encode(img_byte.getvalue()).decode()
+                messages = [{
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
+                        {"type": "text", "text": (
+                            f"这是PDF文档的第{i}页（共{total_pages}页）。"
+                            "请完整提取这张图片中的所有文字内容，保持原始排版结构。"
+                            "如果包含表格，请完整提取表格内容。只输出文字，不要解释。"
+                        )},
+                    ],
+                }]
+                t = _vl_chat(messages, max_tokens=4096)
+                if t and len(t) > 10:
+                    page_texts.append(f"--- 第{i}页 ---\n{t}")
+                else:
+                    page_texts.append(f"--- 第{i}页 ---\n（VL识别无文字）")
+                pages_processed += 1
+                if pages_processed % 5 == 0 or pages_processed == total_pages:
+                    print(f"    OCR 进度: {pages_processed}/{total_pages}", flush=True)
+            except Exception as e:
+                page_texts.append(f"--- 第{i}页 ---\n[OCR失败: {e}]")
+                pages_processed += 1
+            import time; time.sleep(0.3)
+        if page_texts:
+            return "\n\n".join(page_texts), pages_processed
+    except ImportError:
+        print("  ⚠ pdf2image 未安装，跳过逐页 OCR", flush=True)
+    except Exception as e:
+        print(f"  ⚠ pdf2image 逐页 OCR 失败 ({e})，回退", flush=True)
+
+    # 方法 2: 整份 PDF base64 直接传 VL（可能只读首页）
     try:
         b64, mime = _file_to_base64(pdf_path)
         messages = [{
             "role": "user",
             "content": [
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:application/pdf;base64,{b64}"},
-                },
-                {
-                    "type": "text",
-                    "text": "请完整提取这份文档中的所有文字内容，保持原始排版结构。只输出文字，不要解释。",
-                },
+                {"type": "image_url", "image_url": {"url": f"data:application/pdf;base64,{b64}"}},
+                {"type": "text", "text": "请完整提取这份文档中的所有文字内容，保持原始排版结构。只输出文字，不要解释。"},
             ],
         }]
         result = _vl_chat(messages, max_tokens=8192)
         if result and len(result) > 200:
-            return result
+            return result, 1  # 整份处理无法确定页数，标记为1
     except Exception:
         pass
 
-    # 方法 2: 回退到 pdfminer 提取文字
+    # 方法 3: pdfminer 提取文字
     try:
         from pdfminer.high_level import extract_text as pdfminer_extract
         text = pdfminer_extract(str(pdf_path))
         if text and len(text) > 100:
-            return text
+            return text, 1
     except ImportError:
         pass
     except Exception:
         pass
 
-    # 方法 3: 回退到 PyPDF2
+    # 方法 4: PyPDF2
     try:
         from PyPDF2 import PdfReader
         reader = PdfReader(str(pdf_path))
@@ -250,13 +295,13 @@ def _ocr_pdf(pdf_path: Path, output_dir: Path) -> str:
                 pages.append(t)
         text = "\n\n".join(pages)
         if text and len(text) > 100:
-            return text
+            return text, len(reader.pages)
     except ImportError:
         pass
     except Exception:
         pass
 
-    return f"[无法提取 PDF 文本: {pdf_path.name}，请安装 pdfminer 或 PyPDF2]"
+    return f"[无法提取 PDF 文本: {pdf_path.name}，请安装 pdf2image、pdfminer 或 PyPDF2]", 0
 
 
 # ── 结构化抽取 ────────────────────────────────────────
@@ -266,7 +311,7 @@ EXTRACTION_PROMPT_TEMPLATE = """基于以下文档内容，提取关键事实信
 JSON schema（字段说明）：
 - company_name: 公司名称（文档中出现的公司全称）
 - industry: 所属行业（文档中明确提到的）
-- sub_industry: 细分行业（文档中明确提到的）
+- sub_industry: 细分行业（文档中明确提到的，必须尽可能具体。如"耐辐照芯片"而非"半导体"或"模拟芯片"，"商业航天发射服务"而非"航天"或"军工"。如果文档提到多个细分领域，用顿号分隔列出所有细分领域）
 - founding_year: 成立年份（文档中明确提到的数字，无法确定填 null）
 - headquarters: 总部所在地（文档中明确提到的）
 - product_maturity: 产品成熟度，从以下选项中选择一个最符合的：概念/原型/小批量/量产
@@ -280,8 +325,9 @@ JSON schema（字段说明）：
 - product_service: 数组，核心产品或服务名称（优先提取明确的产品名、平台名、解决方案名，不要漏掉系列产品）
 - target_market: 目标市场/应用场景（文档中明确提到的行业、客户群、使用场景）
 - team_highlights: 数组，实际创始人/CEO/CTO/COO/管理层的姓名和职务（格式"姓名 - 职务/头衔 - 关键背景"）。只放公司内部全职管理层，不放外部顾问。
-- advisors: 数组，科学顾问/专家委员会/外部顾问的姓名和职务（格式"姓名 - 职务/头衔 - 关键背景"）。如果文档标注了"科学顾问""顾问委员会""专家委员会"等字样，对应人物放这里。
+- advisors: 数组，科学顾问/专家委员会/外部顾问的姓名和职务（格式"姓名 - 职务/头衔 - 关键背景"）。**严格限制**：只有文档中明确标注了"科学顾问""顾问委员会""专家委员会""外部顾问"等字样，并且列出了具体人名时，才填入此字段。不要从"专家团队""行业专家"等模糊表述中推断顾问。如果文档没有明确的顾问名单，必须填空数组 []。
 - financial_highlights: 对象，含 revenue/growth_rate/profitability/key_metrics（只填文档中明确出现的数据，无则填"未披露"）
+- revenue_breakdown: 对象，营收按产品线/业务线分解（如文档提到"抗辐照芯片占65%收入"等，按品类拆分。格式如 {"抗辐照芯片": "65%", "车规级电源管理芯片": "20%", "检测服务": "15%"}。如果文档未提供分解，填 {}）
 - competitive_advantages: 数组，文档中声称的竞争优势、技术亮点、壁垒
 - risks: 数组，文档中提到的风险、挑战、限制、监管要求；如文档未提到则填 ["未提及"]
 - use_of_proceeds: 资金用途/融资用途（文档中明确提到的）
@@ -362,11 +408,13 @@ def extract_structured_info(ocr_text: str) -> dict[str, Any]:
     """用 VL 模型从 OCR 文本中抽取客观事实信息，融资阶段由规则推断"""
     # 截断过长文本（VL 模型上下文窗口足够大，尽量多喂）
     content = ocr_text[:32000]
-    prompt = EXTRACTION_PROMPT_TEMPLATE.format(content=content)
-    
+    # ⚠️ 不能用 str.format()——OCR 文本中的花括号会被误解析为占位符导致 KeyError
+    # 改用字符串拼接，安全地插入 content
+    prompt = EXTRACTION_PROMPT_TEMPLATE.replace("{content}", content, 1)
+
     messages = [{"role": "user", "content": prompt}]
     response = _vl_chat(messages, max_tokens=4096)
-    
+
     # 尝试解析 JSON
     profile = None
     try:
@@ -381,7 +429,7 @@ def extract_structured_info(ocr_text: str) -> dict[str, Any]:
             json_str = response[start:end]
         else:
             json_str = response
-        
+
         profile = json.loads(json_str)
     except (json.JSONDecodeError, ValueError):
         # JSON 解析失败，返回原始响应作为 summary
@@ -391,14 +439,60 @@ def extract_structured_info(ocr_text: str) -> dict[str, Any]:
             "extraction_error": f"JSON 解析失败: {str(response[:200])}",
             "summary_100words": response[:200],
         }
-    
+
     # 用规则推断融资阶段（不依赖 VL 判断）
     if profile is not None:
         stage, rationale = _infer_financing_stage(profile)
         profile["financing_stage"] = stage
         profile["financing_stage_rationale"] = rationale
-    
+
+        # 后处理：验证提取结果不是幻觉
+        profile = _validate_extracted_profile(profile, ocr_text)
+
     return profile or {"extraction_error": "空结果"}
+
+
+def _validate_extracted_profile(profile: dict, ocr_text: str) -> dict:
+    """验证 VL 提取结果不是幻觉。对每个提取字段做交叉检查。"""
+    import re as _re
+
+    # 1. 验证 advisors：提取的人名必须在 OCR 文本中出现
+    advisors = profile.get("advisors") or []
+    if advisors:
+        validated_advisors = []
+        for advisor in advisors:
+            name = str(advisor).split(" - ")[0].split("-")[0].strip()
+            if name and len(name) >= 2 and name in ocr_text:
+                validated_advisors.append(advisor)
+            elif name:
+                print(f"  ⚠️ 顾问 '{name}' 未在 OCR 文本中找到，可能是幻觉，已过滤", flush=True)
+        if len(validated_advisors) != len(advisors):
+            print(f"  📋 顾问验证: {len(advisors)} → {len(validated_advisors)}（过滤了幻觉项）", flush=True)
+        profile["advisors"] = validated_advisors
+
+    # 2. 验证 team_highlights：提取的人名必须在 OCR 文本中出现
+    team = profile.get("team_highlights") or []
+    if team:
+        validated_team = []
+        for member in team:
+            name = str(member).split(" - ")[0].split("-")[0].strip()
+            if name and len(name) >= 2 and name in ocr_text:
+                validated_team.append(member)
+            elif name:
+                print(f"  ⚠️ 团队成员 '{name}' 未在 OCR 文本中找到，可能是幻觉，已过滤", flush=True)
+        if len(validated_team) != len(team):
+            print(f"  📋 团队验证: {len(team)} → {len(validated_team)}（过滤了幻觉项）", flush=True)
+        profile["team_highlights"] = validated_team
+
+    # 3. 验证 company_name：必须在 OCR 文本中出现
+    company_name = profile.get("company_name", "")
+    if company_name and company_name not in ocr_text:
+        # 尝试模糊匹配（去掉"有限公司"等后缀）
+        short_name = company_name.replace("有限公司", "").replace("股份", "").replace("科技", "").strip()
+        if short_name and short_name not in ocr_text:
+            print(f"  ⚠️ 公司名 '{company_name}' 未在 OCR 文本中找到，可能是幻觉", flush=True)
+
+    return profile
 
 
 # ── 主入口 ────────────────────────────────────────────
@@ -459,8 +553,7 @@ def run_document_intake(job_ctx, input_file: str) -> dict[str, Any]:
             pages_processed = 1
 
         elif ext == ".pdf":
-            ocr_text = _ocr_pdf(input_path, extraction_dir)
-            pages_processed = 1  # PDF 作为整体处理
+            ocr_text, pages_processed = _ocr_pdf(input_path, extraction_dir)
 
         elif ext in (".pptx", ".ppt"):
             # PPTX: 优先 LibreOffice 渲染整页 → VL OCR（覆盖图片型页面）
@@ -544,7 +637,7 @@ def run_document_intake(job_ctx, input_file: str) -> dict[str, Any]:
         elif ext in (".docx", ".doc"):
             # DOCX: 优先用 python-docx 读文字，再对图片做 VL OCR
             page_texts = []
-            
+
             # Step 1: python-docx 读文字
             doc_text = ""
             try:

@@ -136,7 +136,7 @@ def _dispatch_role_specs(task_dir: Path, profile: dict) -> list[dict[str, Any]]:
 
 
 def _quality_check(output_path: Path) -> dict[str, Any]:
-    """对子代理输出做质量评分。"""
+    """对子代理输出做质量评分。v2: 增加来源充分性检查。"""
     text = output_path.read_text(encoding="utf-8")
     urls = text.count("http")
     sections = text.count("## ")
@@ -154,10 +154,27 @@ def _quality_check(output_path: Path) -> dict[str, Any]:
         score = max(0, score - 1)
     if sections < 3:
         score = max(0, score - 1)
+
+    # v2: 来源充分性检查
+    import re as _re
+    unique_domains = set()
+    for m in _re.finditer(r'https?://([a-zA-Z0-9.-]+)', text):
+        unique_domains.add(m.group(1))
+    domain_count = len(unique_domains)
+
+    unverified_count = text.count("未经搜索验证") + text.count("⚠ 未经搜索验证")
+
+    if domain_count < 3:
+        score = max(0, score - 1)
+    if unverified_count > 2:
+        score = max(0, score - 1)
+
     return {
         "score": score,
         "content_length": content_len,
         "url_count": urls,
+        "unique_domain_count": domain_count,
+        "unverified_count": unverified_count,
         "section_count": sections,
         "verdict": "pass" if score >= 3 else "fail",
     }
@@ -574,6 +591,32 @@ def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
 
     delivery_errors = []
 
+    # v2: 在交付前对统稿输出跑 verification_agent.py（BP 管线之前没有验证环节）
+    verification_result = None
+    synthesis_text = dimension_outputs.get("synthesis", "") if dimension_outputs else ""
+    if synthesis_text and len(synthesis_text) > 500:
+        try:
+            from scripts.verification_agent import AdversarialVerifier
+            verifier = AdversarialVerifier(pipeline="bp")
+            verification_result = verifier.run(synthesis_text)
+            verdict = verification_result.get("verdict", "UNKNOWN")
+            fail_count = verification_result.get("fail", 0)
+            print(f"  🔍 BP 对抗验证: verdict={verdict}, fails={fail_count}", flush=True)
+
+            # 保存验证结果
+            ver_dir = delivery_dir.parent / "verification"
+            ver_dir.mkdir(parents=True, exist_ok=True)
+            ver_path = ver_dir / f"{job_ctx.job_id}_bp_verification.json"
+            ver_path.write_text(
+                json.dumps(verification_result, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            # FAIL 但不阻断交付——只是记录和警告
+            if verdict == "FAIL":
+                delivery_errors.append(f"对抗验证 FAIL: {fail_count} 项检查失败（详见 verification/）")
+        except Exception as exc:
+            print(f"  ⚠️ BP 对抗验证跳过: {exc}", flush=True)
+
     docx_path = ""
     if dimension_outputs:
         try:
@@ -614,35 +657,41 @@ def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
         pass
 
     # 微信通知（三步发送：文本→文件→确认，失败自动重试1次）
-    # ⚠️ iLink SDK context_token 过期时 ret=-2 但不抛异常，需检查 file_sent 字段
     wechat_result = None
     if docx_path:
-        for attempt in range(2):
-            try:
-                sys.path.insert(0, str(runtime_root))
-                from scripts.longshao_notify import notify_bp_report
-                
-                dimension_count = len(dimension_outputs)
-                total_dimensions = len(file_map) if 'file_map' in dir() else dimension_count
-                
-                result = notify_bp_report(
-                    task_id=job_ctx.job_id,
-                    docx_path=docx_path,
-                    dimension_count=dimension_count,
-                    total=total_dimensions,
-                )
-                wechat_result = result
-                # 检查文件是否真正发送成功（file_sent=False 说明 context_token 可能过期）
-                if result.get('ok') and result.get('file_sent', True):
-                    break
-                if result.get('ok') and not result.get('file_sent', True):
-                    print(f"  ⚠ 微信文本通知成功但文件发送可能失败（context_token 可能过期），请检查微信", flush=True)
-                    break
-                if attempt == 0:
-                    print(f"  ⚠ 微信通知第{attempt+1}次失败: {result.get('msg', '未知错误')}，重试中...", flush=True)
-            except Exception as e:
-                if attempt == 0:
-                    print(f"  ⚠ 微信通知第{attempt+1}次异常: {e}，重试中...", flush=True)
+        # 找 Python 3.14+（wechat_bot 所在环境）
+        import shutil
+        python314 = shutil.which("python3.14") or ""
+        if not python314:
+            # 回退到 homebrew 路径
+            import glob as _glob
+            _candidates = sorted(_glob.glob("/opt/homebrew/Cellar/python@3.14/*/Frameworks/Python.framework/Versions/3.*/Resources/Python.app/Contents/MacOS/Python"), reverse=True)
+            python314 = _candidates[0] if _candidates else ""
+        if not python314:
+            print("  ⚠ 找不到 Python 3.14，跳过微信通知", flush=True)
+            python314 = None
+        notify_script = str(runtime_root / "scripts" / "longshao_notify.py")
+        caption = f"📋 BP尽调报告完成\n标的: {job_ctx.job_id}\n报告: {Path(docx_path).name}"
+        if python314:
+            for attempt in range(2):
+                try:
+                    r = subprocess.run(
+                        [python314, notify_script, "--file", str(docx_path), caption],
+                        capture_output=True, text=True, cwd=str(runtime_root), timeout=120,
+                    )
+                    if r.returncode == 0 and r.stdout.strip():
+                        import json as _json
+                        wechat_result = _json.loads(r.stdout.strip())
+                    else:
+                        wechat_result = {"ok": False, "msg": f"exit={r.returncode} stderr={r.stderr[:200]}"}
+                    # 检查结果
+                    if wechat_result.get('ok'):
+                        break
+                    if attempt == 0:
+                        print(f"  ⚠ 微信通知第{attempt+1}次失败: {wechat_result.get('msg', '未知错误')}，重试中...", flush=True)
+                except Exception as e:
+                    if attempt == 0:
+                        print(f"  ⚠ 微信通知第{attempt+1}次异常: {e}，重试中...", flush=True)
 
     dimensions_total = len(file_map) if 'file_map' in dir() else len(dimension_outputs)
     return {

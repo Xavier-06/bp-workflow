@@ -32,6 +32,9 @@ EARLY_STAGE_QUERIES = {
         '{tech} 技术路线 分类 对比',
         '{tech} 产品 价格 成本 售价',
         '{tech} 行业标准 技术规范 国标 团标',
+        # 技术验证搜索（v2新增）
+        '{tech} 技术突破 实验验证 第三方测试',
+        '{tech} 标准 规范 认证 检测',
     ],
     "industry": [
         '{industry} 市场规模 行业趋势 {year}',
@@ -41,6 +44,10 @@ EARLY_STAGE_QUERIES = {
         '{industry} 厂商 企业 公司 玩家',
         '{tech} 民用 应用场景 拓展',
         '{industry} 研究报告 market research report {year}',
+        # 行业报告搜索加强（v2新增，不用site:和OR操作符）
+        '{industry} 行业报告 白皮书 深度报告 {year}',
+        '{industry} industry report forecast {year}',
+        '{tech} 市场分析 行业深度 券商研报 {year}',
     ],
     "competition": [
         '{tech} 竞品 替代方案 对比',
@@ -67,6 +74,9 @@ MATURE_STAGE_QUERIES = {
         '{tech} 技术路线 分类 对比 优劣',
         '{tech} 产品 价格 成本 单价',
         '{tech} 行业标准 技术规范 国标 团标',
+        # 技术验证搜索（v2新增）
+        '{tech} 技术验证 第三方测试 认证报告',
+        '{tech} 标准 规范 认证 检测',
     ],
     "industry": [
         '"{entity}" 行业 市场规模 竞争格局 {year}',
@@ -76,6 +86,10 @@ MATURE_STAGE_QUERIES = {
         '{industry} 厂商 企业 龙头 上市公司',
         '{tech} 民用 应用场景 拓展 新兴',
         '{industry} 研究报告 market research {year}',
+        # 行业报告搜索加强（v2新增，不用site:和OR操作符）
+        '{industry} 行业报告 白皮书 深度报告 {year}',
+        '{industry} industry report forecast {year}',
+        '{industry} 券商研报 深度报告 行业分析 {year}',
     ],
     "competition": [
         '"{entity}" 竞品 对标 融资 估值',
@@ -114,7 +128,7 @@ def _entity(task_dir: Path, fallback: str = "") -> str:
 def _extract_tech_keywords(task_dir: Path) -> str:
     """从 profile 的 product_service + competitive_advantages 中提取技术关键词，
     用于替代过于宽泛的 industry/sub_industry 构造搜索词。
-    
+
     优先级：product_service > competitive_advantages > sub_industry
     """
     profile = _read_json(task_dir / "bp_step0_profile.json")
@@ -157,7 +171,7 @@ def _extract_tech_keywords(task_dir: Path) -> str:
 
 def _ocr_tech_hints(task_dir: Path) -> list[str]:
     """从 OCR 文本中提取技术关键词提示，用于补充 presearch 搜索词。
-    
+
     扫描 OCR 文本中反复出现的技术术语（≥2次出现的≥3字中文词组）。
     """
     ocr_path = task_dir / "bp_ocr_text.txt"
@@ -180,7 +194,7 @@ def _ocr_tech_hints(task_dir: Path) -> list[str]:
 
 def _infer_keywords_from_ocr(task_dir: Path) -> dict[str, str]:
     """当 profile 提取失败时，从 OCR 文本推断 tech 和 industry 关键词。
-    
+
     策略：
     1. 寻找"行业"/"领域"/"赛道"等关键词后的上下文
     2. 寻找"专注于"/"致力于"/"主要从事"后的业务描述
@@ -193,7 +207,7 @@ def _infer_keywords_from_ocr(task_dir: Path) -> dict[str, str]:
         import re
         text = ocr_path.read_text(encoding="utf-8")
         result = {}
-        
+
         # 策略1：匹配"专注于"/"致力于"/"主要从事"后的业务描述
         biz_match = re.search(
             r'(?:专注于|致力于|主要从事|聚焦)\s*([\u4e00-\u9fff、]+(?:芯片|技术|方案|装备|产品|服务|器件))',
@@ -201,7 +215,7 @@ def _infer_keywords_from_ocr(task_dir: Path) -> dict[str, str]:
         )
         if biz_match:
             result["tech"] = biz_match.group(1).strip()[:30]
-        
+
         # 策略2：匹配"行业"/"领域"/"赛道"前的关键词
         industry_match = re.search(
             r'([\u4e00-\u9fff]{2,8})(?:行业|领域|赛道|产业|市场)',
@@ -209,7 +223,7 @@ def _infer_keywords_from_ocr(task_dir: Path) -> dict[str, str]:
         )
         if industry_match:
             result["industry"] = industry_match.group(1).strip()
-        
+
         # 策略3：高频技术词（≥5次出现的4-8字中文词组）
         if not result.get("tech"):
             from collections import Counter
@@ -219,7 +233,7 @@ def _infer_keywords_from_ocr(task_dir: Path) -> dict[str, str]:
                 if count >= 5 and len(word) >= 4:
                     result["tech"] = word
                     break
-        
+
         return result
     except Exception:
         return {}
@@ -228,18 +242,35 @@ def _infer_keywords_from_ocr(task_dir: Path) -> dict[str, str]:
 def _search(query: str, max_results: int = 6) -> list[dict[str, Any]]:
     q = (query or "").strip()
     if len(q) < 3:
-        print(f"    ⚠️ 搜索关键词过短，跳过: {query!r}", flush=True)
         return []
     try:
         from scripts.search_gateway import search
         rows = search(q, max_results=max_results)
         result = rows if isinstance(rows, list) else []
         if not result:
-            print(f"    ⚠️ 搜索无结果: {q[:50]}", flush=True)
+            # 尝试简化查询重试（去掉年份、去掉过长的修饰词）
+            simplified = _simplify_query(q)
+            if simplified and simplified != q:
+                rows2 = search(simplified, max_results=max_results)
+                result = rows2 if isinstance(rows2, list) else []
+                if result:
+                    print(f"    🔄 简化查询后有结果: {simplified[:50]}", flush=True)
         return result
     except Exception as e:
         print(f"    ❌ 搜索异常: {e}", flush=True)
         return []
+
+
+def _simplify_query(query: str) -> str:
+    """简化查询：去掉年份、去掉过长修饰词，提高命中率。"""
+    import re as _re
+    # 去掉年份（2024/2025/2026）
+    simplified = _re.sub(r'\s+20[2-3]\d\s*$', '', query).strip()
+    # 如果查询超过6个关键词，只保留前4个
+    parts = simplified.split()
+    if len(parts) > 6:
+        simplified = ' '.join(parts[:4])
+    return simplified if simplified != query else ''
 
 
 def _format_step(title: str, rows: list[dict[str, Any]]) -> str:
@@ -322,18 +353,18 @@ def run_presearch(job_ctx: Any) -> dict[str, Any]:
     # 提取搜索变量
     tech = str(profile.get("sub_industry") or profile.get("industry") or "").strip()
     industry = str(profile.get("industry") or "").strip()
-    
+
     # 🔧 优化：用 product_service 中提取的核心技术词替代宽泛的 sub_industry
     tech_keyword = _extract_tech_keywords(task_dir)
     if tech_keyword and len(tech_keyword) > len(tech):
         tech = tech_keyword
         print(f"     ⚡ tech_keyword 替换: sub_industry → {tech}", flush=True)
-    
+
     # 🔧 优化：从 OCR 文本补充技术关键词
     ocr_hints = _ocr_tech_hints(task_dir)
     if ocr_hints:
         print(f"     ⚡ OCR 技术关键词补充: {ocr_hints}", flush=True)
-    
+
     # 🔧 修复：当 profile 提取失败（extraction_error）导致 tech/industry 全空时，
     # 用 OCR 技术关键词作为 fallback，避免搜索词只剩 entity 名称
     if not tech and ocr_hints:
@@ -342,7 +373,7 @@ def run_presearch(job_ctx: Any) -> dict[str, Any]:
     if not industry and ocr_hints:
         industry = ocr_hints[0]
         print(f"     ⚡ industry 从 OCR hints fallback: {industry}", flush=True)
-    
+
     # 🔧 修复：如果 OCR hints 也没有，从 OCR 文本做最后一轮 keyword 提取
     if not tech or not industry:
         inferred = _infer_keywords_from_ocr(task_dir)
@@ -352,7 +383,7 @@ def run_presearch(job_ctx: Any) -> dict[str, Any]:
         if not industry and inferred.get("industry"):
             industry = inferred["industry"]
             print(f"     ⚡ industry 从 OCR 推断 fallback: {industry}", flush=True)
-    
+
     founders = profile.get("team_highlights") or []
     first_founder = ""
     if founders:
@@ -390,7 +421,7 @@ def run_presearch(job_ctx: Any) -> dict[str, Any]:
             )
             used_queries.append(query)
             rows.extend(_search(query, max_results=4))
-        
+
         # 🔧 优化：用 OCR 提取的技术关键词补充搜索
         if ocr_hints and slug in ("tech", "industry", "competition"):
             for hint in ocr_hints[:2]:  # 每个维度最多补2个关键词查询

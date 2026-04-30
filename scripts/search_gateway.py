@@ -54,6 +54,14 @@ NOISE_HOSTS = [
     "wenwen.sogou.com", "zhidao.baidu.com", "bing.com/search?q=",
     # 机器聚合站
     "company-listing.org", "mfrbee.com", "repo-market.com",
+    # 外国垃圾站（DDG 对中文公司名返回的噪声）
+    "netshoes.com.br", "trauer-in-thueringen.de", "amazon.", "ebay.",
+    "alibaba.com/offer", "made-in-china.com", "globalsources.com",
+    "europages.", "wlw.de", "kompass.com", "dnb.com",
+    # 讣告/婚庆/无关生活服务
+    "trauer", "bestattung", "beerdigung", "obituary",
+    # 价格比较/购物聚合
+    "preisvergleich", "kelkoo", "shopzilla", "pricegrabber",
 ]
 
 
@@ -77,8 +85,26 @@ def _relevance_ok(row: dict, query: str) -> bool:
         keywords = [w.strip("\"'") for w in q.split() if len(w) > 2][:3]
     if not keywords:
         return True
-    text = f"{row.get('title', '')} {row.get('content', '')} {row.get('url', '')}".lower()
-    return any(kw.lower() in text for kw in keywords)
+    title = row.get("title", "")
+    content = row.get("content", "")
+    url = row.get("url", "")
+    text = f"{title} {content} {url}".lower()
+
+    # 关键词必须出现在 title 或 content 中（不能只在 URL 里）
+    title_content = f"{title} {content}".lower()
+    has_keyword_in_body = any(kw.lower() in title_content for kw in keywords)
+    if not has_keyword_in_body:
+        return False
+
+    # 如果查询包含中文，结果的 title+content 也必须包含中文
+    has_chinese_query = _has_chinese(q)
+    if has_chinese_query:
+        body_text = f"{title} {content}"
+        chinese_chars = re.findall(r"[\u4e00-\u9fff]", body_text)
+        if len(chinese_chars) < 5:  # 至少5个中文字符才算有意义的中文内容
+            return False
+
+    return True
 
 
 def _dedupe(rows: list, max_results: int, query: str = "") -> list:
@@ -219,14 +245,14 @@ def _searxng_search(query: str, max_results: int = 10, engines: str = "", timeou
 
 def google_search(query: str, max_results: int = 10) -> list:
     """走 7897 代理抓 Google 搜索页。
-    
+
     Google 现在返回 JS 渲染页面，Fetcher 无法解析。
     改用 requests + 代理 + 特殊 User-Agent 请求非 JS 版本。
     """
     try:
         lang = "zh-CN" if _has_chinese(query) else "en"
         url = f"https://www.google.com/search?q={quote_plus(query)}&hl={lang}&num={max_results + 5}"
-        
+
         r = requests.get(
             url,
             proxies={"http": PROXY_URL, "https": PROXY_URL},
