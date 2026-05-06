@@ -156,18 +156,21 @@ def _quality_check(output_path: Path) -> dict[str, Any]:
         score = max(0, score - 1)
 
     # v2: 来源充分性检查
+    # 统计不同域名的外部URL数量（去重）
     import re as _re
     unique_domains = set()
     for m in _re.finditer(r'https?://([a-zA-Z0-9.-]+)', text):
         unique_domains.add(m.group(1))
     domain_count = len(unique_domains)
 
+    # 检查是否有"未经搜索验证"标注（说明搜索不足）
     unverified_count = text.count("未经搜索验证") + text.count("⚠ 未经搜索验证")
 
+    # 来源充分性扣分
     if domain_count < 3:
-        score = max(0, score - 1)
+        score = max(0, score - 1)  # 至少3个不同来源域名
     if unverified_count > 2:
-        score = max(0, score - 1)
+        score = max(0, score - 1)  # 超过2处未经搜索验证的推断
 
     return {
         "score": score,
@@ -472,6 +475,39 @@ def _run_bp_synthesis_prepare(runtime_root: Path, job_ctx: JobContext) -> dict[s
         '核心判断（2-3段）+ 投资建议（是否进入尽调+尽调重点清单）+ 估值建议。\n\n'
         '# 来源与参考\n'
         '将正文中所有 [^N] 脚注展开为完整来源信息，格式：[^N] 来源名称 — URL (日期)\n\n'
+        '## ⚠️ 统稿保留硬约束（最高优先级 — 解决统稿过度压缩问题）\n'
+        '统稿的职责是"跨维度去重+逻辑重组"，不是"压缩篇幅"。以下内容必须原文保留，不得删除或压缩为文字叙述：\n'
+        '\n'
+        '### 规则1：核心对比表必须原文保留\n'
+        '子代理输出中的以下类型表格，**必须完整保留到统稿中**，不得删除、不得压缩为文字概述：\n'
+        '- **行业技术路线全景对比表**（不同技术路线的原理/性能/成本/成熟度/代表企业横向对比）\n'
+        '- **产品级竞品参数对比表**（每条产品线 vs 具体竞品型号，含性能参数/价格/认证/量产状态）\n'
+        '- **现有方案深度对比大表**（横向8-10维度对比，含价格）\n'
+        '- **核心组件拆解表**（组件/功能/技术难点/自研vs外采）\n'
+        '如果子代理输出中已有这类表格，统稿时直接搬入对应章节，重新编排格式即可。如果子代理未产出但该品类报告理应有，统稿必须自行补充。\n'
+        '投资人看报告最核心的判断依据就是"我的技术/产品在行业里排什么位置、替代方案有哪些"——丢失这些表 = 报告不合格。\n'
+        '\n'
+        '### 规则2：市占率/份额/渗透率数据必须完整保留\n'
+        '以下数据不得省略或模糊化：\n'
+        '- **TAM/SAM/SOM分层推算**及每层的具体数字和推算依据\n'
+        '- **各细分市场的当前渗透率和长期渗透率预期**，以及驱动力/对标/必要条件\n'
+        '- **竞品市占率**（具体数字和百分比必须保留，不能只写"垄断竞争"或"占据大部分份额"等模糊表述）\n'
+        '- **标的公司在各细分市场的市占率/渗透率**（具体数字必须出现，不能省略）\n'
+        '- **市场规模推算的关键参数**（目标单位数量/配备比例/单价/年更新量）\n'
+        '这些数据是投资人判断"市场有多大、我能吃多少"的核心依据，省略 = 报告不合格。\n'
+        '\n'
+        '### 规则3：去重只做跨维度，不做维度内压缩\n'
+        '- **跨维度去重**✓：如果团队维度和竞争维度都列了同一竞品列表，统稿时只保留一处（选信息更完整的那个），另一处改为引用\n'
+        '- **维度内压缩**✗：单个维度内部的表格、数据、分析段落不得删除或压缩。如果技术维度有5张竞品对比表，统稿必须保留全部5张（可以分散到不同章节），不能合并成1张高层级表格\n'
+        '- **判断标准**：如果删除某段内容后，读者对"标的公司的技术/产品在行业中处于什么位置"的理解变模糊了，那段内容就不该删\n'
+        '\n'
+        '### 规则4：来源合并不得丢来源\n'
+        '子代理的来源引用格式可能不统一（有的用[^N]脚注，有的用编号表格，有的用🅰-N评级格式），统稿时必须全部归集：\n'
+        '- **所有子代理的来源索引表都必须合并到统稿末尾的"来源与参考"章节**，不能因为格式不同就丢弃\n'
+        '- **跨维度去重内容，来源也要去重保留**：如果4个维度都引用了同一来源（如企查查工商信息），统稿正文中只引用1次，但末尾来源表保留1条即可\n'
+        '- **目标：统稿来源总数 ≥ 各维度来源去重后的总数**，不得少于子代理来源的总量。如果统稿25条来源但4个维度合计79条，说明大量来源在统稿过程中丢失了\n'
+        '- 对于非[^N]格式的来源（如🅰-N评级格式、编号表格格式），统稿时必须将其转换为[^N]脚注格式并纳入统一编号\n'
+        '\n'
         '## 写作规范\n'
         '- 用中文写作，语言专业但不晦涩\n'
         '- 表格是核心信息载体，至少 8 个表格\n'
@@ -561,6 +597,7 @@ def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
     task_dir = _task_dir(runtime_root, job_ctx)
     workspace = getattr(job_ctx, "workspace", None)
     delivery_dir = workspace.delivery_dir if workspace is not None else task_dir
+    delivery_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir = _outputs_dir(runtime_root, job_ctx)
 
     # 优先使用统稿输出（投研逻辑结构），fallback 到四个维度原文
@@ -657,6 +694,8 @@ def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
         pass
 
     # 微信通知（三步发送：文本→文件→确认，失败自动重试1次）
+    # ⚠️ wechat_bot 装在 Python 3.14，系统 Python 3.9 找不到模块
+    # 必须用 subprocess + Python 3.14 调用 longshao_notify.py CLI
     wechat_result = None
     if docx_path:
         # 找 Python 3.14+（wechat_bot 所在环境）
@@ -693,7 +732,7 @@ def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
                     if attempt == 0:
                         print(f"  ⚠ 微信通知第{attempt+1}次异常: {e}，重试中...", flush=True)
 
-    dimensions_total = len(file_map) if 'file_map' in dir() else len(dimension_outputs)
+    dimensions_total = len(file_map) if 'file_map' in locals() else len(dimension_outputs)
     return {
         "ok": bool(docx_path),
         "mode": "bp_delivery_minimal",

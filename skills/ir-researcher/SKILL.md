@@ -138,7 +138,7 @@ python3 {IR_RUNTIME}/tasks/valuation_enricher.py --entity "标的名称" --marke
 ## BP OCR 配置
 
 - VL API: `https://api.tokenpony.cn/v1`
-- VL API Key: `sk-88aeca1b77f74b24944a11bee4ae606f`（小马算力，代码 default 已写死）
+- VL API Key: `从环境变量读取`（小马算力，代码 default 已写死）
 - VL Model: `qwen3-vl-30b-a3b-instruct`
 - 环境变量无需手动设置，代码已内置 default
 

@@ -168,7 +168,18 @@ ROLE_SYSTEM_PROMPTS = {
         'Each DD item must include HOW to verify, not just WHAT to check.\n'
         '8. Customer verification must be layered: strategic investors as customers '
         'have high credibility. Distinguish mass-production vs in-qualification vs unverified.\n'
-        '9. SEARCH REQUIREMENT: minimum 10 independent searches per role. Model knowledge is NOT a citable source.'
+        '9. SEARCH REQUIREMENT: minimum 10 independent searches per role. Model knowledge is NOT a citable source.\n'
+        '10. VALUATION: Comparable companies must pass 3-filter (same financing stage or apply 20-30% illiquidity discount, '
+        'revenue scale within 3x, same business model e.g. Fabless≠IDM). If using listed comps for private company, MUST apply illiquidity discount.\n'
+        '11. VALUATION: Multiples (PS/PE etc.) MUST be anchored to specific comparable transactions or listed company data. '
+        'Scarcity premium requires same-track private market deal evidence. Loss-making companies cannot be valued by PS alone.\n'
+        '12. VALUATION: MUST apply 4 mandatory discounts where applicable: illiquidity (20-30% if private/unlisted), '
+        'tech risk (15-25% if core specs unverified by 3rd party), key-person (10-15% if founder controls >50% voting), '
+        'competition window (5-10% if differentiation moat <5yr). Report MUST show pre-discount AND post-discount valuation tables.\n'
+        '13. VALUATION: MUST use at least 2 methods (PS + DCF minimum). If PS vs DCF gap >30%, explain why. '
+        'PEG >2 = overvaluation signal, must flag. Discount rate for private companies should be 15%+ to reflect risk.\n'
+        '14. VALUATION: Revenue split assumptions must have confidence levels (high=BP disclosed/medium=industry inferred/low=pure guess). '
+        'Low-confidence splits must use ranges not point estimates. Sensitivity analysis required: if key assumption changes ±20%, how does valuation change?'
     ),
 }
 

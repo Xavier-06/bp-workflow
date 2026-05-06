@@ -428,6 +428,8 @@ def _run_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
             docx_error = str(e)
 
     # 4. 交付通知 — 用 wechat-ilink-bot SDK 发送文件（三步发送：文本→文件→确认）
+    # ⚠️ wechat_bot 装在 Python 3.14，系统 Python 3.9 找不到模块
+    # 必须用 subprocess + Python 3.14 调用 longshao_notify.py CLI
     delivery_ok = False
     delivery_error = ""
     if docx_path:
@@ -447,12 +449,14 @@ def _run_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
                         [python314, notify_script, "--file", str(docx_path), caption],
                         capture_output=True, text=True, cwd=str(runtime_root), timeout=120,
                     )
+                    result = {}
                     if r.returncode == 0 and r.stdout.strip():
                         import json as _json
                         result = _json.loads(r.stdout.strip())
                         delivery_ok = result.get("ok", False)
                     else:
-                        delivery_error = f"exit={r.returncode} stderr={r.stderr[:200]}"
+                        result = {"ok": False, "msg": f"exit={r.returncode} stderr={r.stderr[:200]}"}
+                        delivery_error = result["msg"]
                     if delivery_ok:
                         break
                     delivery_error = result.get("msg", "未知错误") if r.returncode == 0 else delivery_error

@@ -114,14 +114,14 @@ def _check_deps():
     checks.append(("pdftoppm", f"✅ {pdftoppm}" if pdftoppm else "⚠️ 未安装（PDF→PNG 会降级）"))
 
     # VL API
-    vl_key = os.environ.get("VL_API_KEY", "sk-88aeca1b77f74b24944a11bee4ae606f")
+    vl_key = os.environ.get("VL_API_KEY", "")
     checks.append(("VL_API_KEY", "✅ 已配置" if vl_key else "❌ 未配置"))
 
     # search gateway
     try:
         from scripts.search_gateway import verify_engines
         engines = verify_engines()
-        searxng_ok = engines.get("searxng_en", False)
+        searxng_ok = engines.get("searxng", False)
         ddg_ok = engines.get("ddg", False)
         checks.append(("SearXNG", f"✅" if searxng_ok else "⚠️ 未运行"))
         checks.append(("DDG", f"✅" if ddg_ok else "⚠️ ddgs 未安装"))

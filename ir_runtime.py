@@ -113,13 +113,10 @@ def check_environment():
     # 3. 核心依赖模块
     core_modules = {
         'task_registry': 'task_registry.py',
-        'hook_dispatcher': 'hook_dispatcher.py',
         'ir_preflight_check': 'ir_preflight_check.py',
         'ir_presearch': 'ir_presearch.py',
         'ir_extract_content': 'ir_extract_content.py',
-        'ir_gap_detector': 'ir_gap_detector.py',
-        'ir_query_rewriter': 'ir_query_rewriter.py',
-        'ir_subagent_launcher': 'ir_subagent_launcher.py',
+        'ir_subagent_launcher_wb': 'ir_subagent_launcher_wb.py',
         'build_ir_evidence_table': 'build_ir_evidence_table.py',
         'build_ir_analysis_draft': 'build_ir_analysis_draft.py',
         'build_ir_final_memo': 'build_ir_final_memo.py',
@@ -135,7 +132,7 @@ def check_environment():
     }
 
     # 4. 子模块
-    sub_modules = ['research', 'content', 'search', 'routing', 'sources', 'memory', 'memory_agent', 'instruction_store']
+    sub_modules = ['research', 'content', 'search', 'routing', 'sources', 'memory', 'memory_agent', 'instruction_store_bp', 'instruction_store_ir']
     missing_mods = [m for m in sub_modules if not (ROOT / m).exists()]
     results['checks']['sub_modules'] = {
         'ok': len(missing_mods) == 0,

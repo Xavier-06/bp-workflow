@@ -24,7 +24,7 @@ import requests
 
 # ── 配置 ──────────────────────────────────────────────
 VL_API_BASE = os.environ.get("VL_API_BASE", "https://api.tokenpony.cn/v1")
-VL_API_KEY = os.environ.get("VL_API_KEY", "sk-88aeca1b77f74b24944a11bee4ae606f")
+VL_API_KEY = os.environ.get("VL_API_KEY", "")
 VL_MODEL = os.environ.get("VL_MODEL", "qwen3-vl-30b-a3b-instruct")
 
 # 支持的文件类型
@@ -64,12 +64,12 @@ def _extract_images_from_pptx(pptx_path: Path, output_dir: Path) -> list[Path]:
 
 def _render_pptx_with_libreoffice(pptx_path: Path, work_dir: Path) -> Optional[Path]:
     """用 LibreOffice 把 PPTX/PPT 渲染为逐页 PNG。
-
+    
     流程：PPTX → PDF（LibreOffice headless）→ 逐页 PNG（pdftoppm）
     返回 PNG 目录路径，失败返回 None。
     """
     import subprocess
-
+    
     # 查找 LibreOffice
     soffice = shutil.which("soffice") or shutil.which("libreoffice")
     if not soffice:
@@ -79,11 +79,11 @@ def _render_pptx_with_libreoffice(pptx_path: Path, work_dir: Path) -> Optional[P
             soffice = str(mac_path)
     if not soffice:
         return None
-
+    
     # 输出目录
     render_dir = work_dir / "rendered_slides"
     render_dir.mkdir(parents=True, exist_ok=True)
-
+    
     # Step 1: PPTX → PDF
     try:
         result = subprocess.run(
@@ -95,17 +95,17 @@ def _render_pptx_with_libreoffice(pptx_path: Path, work_dir: Path) -> Optional[P
             return None
     except Exception:
         return None
-
+    
     # 找到生成的 PDF
     pdf_files = list(render_dir.glob("*.pdf"))
     if not pdf_files:
         return None
     pdf_path = pdf_files[0]
-
+    
     # Step 2: PDF → 逐页 PNG（pdftoppm）
     png_dir = work_dir / "slide_pngs"
     png_dir.mkdir(parents=True, exist_ok=True)
-
+    
     pdftoppm = shutil.which("pdftoppm")
     if pdftoppm:
         try:
@@ -120,7 +120,7 @@ def _render_pptx_with_libreoffice(pptx_path: Path, work_dir: Path) -> Optional[P
                 return png_dir
         except Exception:
             pass
-
+    
     # Fallback: pdf2image Python 包
     try:
         from pdf2image import convert_from_path
@@ -134,7 +134,7 @@ def _render_pptx_with_libreoffice(pptx_path: Path, work_dir: Path) -> Optional[P
         pass
     except Exception:
         pass
-
+    
     # 都失败了，清理
     pdf_path.unlink(missing_ok=True)
     return None
@@ -202,9 +202,9 @@ def _ocr_image(image_path: Path, page_hint: str = "") -> str:
 
 def _ocr_pdf(pdf_path: Path, output_dir: Path) -> tuple[str, int]:
     """OCR PDF — 优先逐页渲染为 PNG 后 VL OCR，确保多页完整处理。
-
+    
     返回 (ocr_text, pages_processed)。
-
+    
     策略：
     1. pdf2image 逐页转 PNG → VL OCR（最完整，覆盖图表/图片）
     2. 整份 PDF base64 直接传 VL（部分模型只读首页，作为 fallback 补充）
@@ -411,10 +411,10 @@ def extract_structured_info(ocr_text: str) -> dict[str, Any]:
     # ⚠️ 不能用 str.format()——OCR 文本中的花括号会被误解析为占位符导致 KeyError
     # 改用字符串拼接，安全地插入 content
     prompt = EXTRACTION_PROMPT_TEMPLATE.replace("{content}", content, 1)
-
+    
     messages = [{"role": "user", "content": prompt}]
     response = _vl_chat(messages, max_tokens=4096)
-
+    
     # 尝试解析 JSON
     profile = None
     try:
@@ -429,7 +429,7 @@ def extract_structured_info(ocr_text: str) -> dict[str, Any]:
             json_str = response[start:end]
         else:
             json_str = response
-
+        
         profile = json.loads(json_str)
     except (json.JSONDecodeError, ValueError):
         # JSON 解析失败，返回原始响应作为 summary
@@ -439,7 +439,7 @@ def extract_structured_info(ocr_text: str) -> dict[str, Any]:
             "extraction_error": f"JSON 解析失败: {str(response[:200])}",
             "summary_100words": response[:200],
         }
-
+    
     # 用规则推断融资阶段（不依赖 VL 判断）
     if profile is not None:
         stage, rationale = _infer_financing_stage(profile)
@@ -637,7 +637,7 @@ def run_document_intake(job_ctx, input_file: str) -> dict[str, Any]:
         elif ext in (".docx", ".doc"):
             # DOCX: 优先用 python-docx 读文字，再对图片做 VL OCR
             page_texts = []
-
+            
             # Step 1: python-docx 读文字
             doc_text = ""
             try:

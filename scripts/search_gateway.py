@@ -51,15 +51,16 @@ NOISE_HOSTS = [
     # 社交媒体 / 个人页面（非官方信息）
     "linkedin.com/in/", "facebook.com", "twitter.com", "youtube.com",
     # 问答平台（内容质量低）
-    "wenwen.sogou.com", "zhidao.baidu.com", "bing.com/search?q=",
+    "wenwen.sogou.com", "bing.com/search?q=",
     # 机器聚合站
-    "company-listing.org", "mfrbee.com", "repo-market.com",
+    "repo-market.com",
     # 外国垃圾站（DDG 对中文公司名返回的噪声）
-    "netshoes.com.br", "trauer-in-thueringen.de", "amazon.", "ebay.",
+    "netshoes.com.br", "trauer-in-thueringen.de",
+    "amazon.com", "ebay.com",
     "alibaba.com/offer", "made-in-china.com", "globalsources.com",
     "europages.", "wlw.de", "kompass.com", "dnb.com",
-    # 讣告/婚庆/无关生活服务
-    "trauer", "bestattung", "beerdigung", "obituary",
+    # 讣告/婚庆/无关生活服务（完整域名匹配避免误杀）
+    "trauer-in-thueringen.de", "bestattung", "beerdigung", "obituary",
     # 价格比较/购物聚合
     "preisvergleich", "kelkoo", "shopzilla", "pricegrabber",
 ]
@@ -245,14 +246,14 @@ def _searxng_search(query: str, max_results: int = 10, engines: str = "", timeou
 
 def google_search(query: str, max_results: int = 10) -> list:
     """走 7897 代理抓 Google 搜索页。
-
+    
     Google 现在返回 JS 渲染页面，Fetcher 无法解析。
     改用 requests + 代理 + 特殊 User-Agent 请求非 JS 版本。
     """
     try:
         lang = "zh-CN" if _has_chinese(query) else "en"
         url = f"https://www.google.com/search?q={quote_plus(query)}&hl={lang}&num={max_results + 5}"
-
+        
         r = requests.get(
             url,
             proxies={"http": PROXY_URL, "https": PROXY_URL},
