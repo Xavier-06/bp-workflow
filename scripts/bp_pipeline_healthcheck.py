@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / 'scripts'
-DDGS_BIN = os.getenv('DDGS_BIN', '/opt/homebrew/bin/ddgs')
+DDGS_BIN = os.getenv('DDGS_BIN', 'ddgs')
 
 
 def port_open(host: str, port: int, timeout: float = 1.5) -> bool:

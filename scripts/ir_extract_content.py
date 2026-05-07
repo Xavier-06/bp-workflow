@@ -20,13 +20,19 @@ import time
 import urllib.request
 from pathlib import Path
 
-os.environ.setdefault('SSL_CERT_FILE', '/opt/homebrew/etc/openssl@3/cert.pem')
-os.environ.setdefault('REQUESTS_CA_BUNDLE', '/opt/homebrew/etc/openssl@3/cert.pem')
+_CERT_FILE = ''
+for _p in ['/opt/homebrew/etc/openssl@3/cert.pem', '/usr/local/etc/openssl@3/cert.pem']:
+    if os.path.exists(_p):
+        _CERT_FILE = _p
+        break
+if _CERT_FILE:
+    os.environ.setdefault('SSL_CERT_FILE', _CERT_FILE)
+    os.environ.setdefault('REQUESTS_CA_BUNDLE', _CERT_FILE)
 
 WORKSPACE = Path(__file__).resolve().parent.parent
 TASKS_DIR = WORKSPACE / 'data' / 'tasks'
 CRED_FILE = WORKSPACE / '.credentials' / 'investment-research.env'
-CERT_FILE = '/opt/homebrew/etc/openssl@3/cert.pem'
+CERT_FILE = _CERT_FILE
 MAX_WORKERS = 3
 
 EXTRACT_SYSTEM = """你是一个专业投研分析师。你的任务是从网页正文中提取与上市公司研报相关的关键信息。

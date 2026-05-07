@@ -4,10 +4,16 @@
 
 搜索栈：
   Layer 1: DDG Python API 直连（清代理，中英文主力）
-  Layer 2: SearXNG 8888（Baidu + Bing 补充）
-  Layer 3: Google 直接抓取（scrapling 走 7897 代理，自己解析）
-  Layer 4: scrapling 深度抓取（对搜索结果做正文提取）
-  Layer 5: yfinance 估值数据（IR 管线专用）
+  Layer 2: SearXNG 本地实例（Baidu + Bing 补充）
+  Layer 3: Google 直接抓取（走代理，自己解析）
+  Layer 4: scrapling 深度抓取（正文提取）
+  Layer 5: yfinance 估值数据（金融专用）
+
+依赖安装：
+  pip install ddgs scrapling yfinance requests
+
+SearXNG 安装：
+  docker run -d -p 8888:8888 --name searxng searxng/searxng:latest
 
 接口：
     from scripts.search_gateway import search, search_deep, search_many, verify_engines
@@ -18,26 +24,58 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote_plus, urlparse
 
 import requests
+import ssl as _ssl
 import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+try:
+    from ddgs import http_client2 as _ddgs_hc2
+    from random import SystemRandom as _SystemRandom
+    _safe_random = _SystemRandom()
+    _SAFE_CIPHERS = _ddgs_hc2.DEFAULT_CIPHERS
+    def _patched_ssl_context(verify):
+        ctx = _ssl.create_default_context(cafile=verify if isinstance(verify, str) else None)
+        shuffled = _safe_random.sample(_SAFE_CIPHERS[9:], len(_SAFE_CIPHERS) - 9)
+        ctx.set_ciphers(":".join(_SAFE_CIPHERS[:9] + shuffled))
+        # 只从安全的策略中随机选择（跳过 TLS 1.3 设置）
+        _safe_commands = [
+            lambda c: None,
+            lambda c: setattr(c, "maximum_version", _ssl.TLSVersion.TLSv1_2),
+            lambda c: setattr(c, "options", c.options | _ssl.OP_NO_TICKET),
+        ]
+        _safe_random.choice(_safe_commands)(ctx)
+        return ctx
+    _ddgs_hc2._get_random_ssl_context = _patched_ssl_context
+except Exception:
+    pass
+
 WORKSPACE = Path(__file__).resolve().parent.parent
-CERT_PATH = "/opt/homebrew/etc/openssl@3/cert.pem"
-if os.path.exists(CERT_PATH):
+
+# ── 配置（全部支持环境变量覆盖）──────────────────────────
+CERT_PATH = os.getenv("SSL_CERT_PATH", "")
+if not CERT_PATH:
+    # macOS Homebrew OpenSSL 常见路径，自动探测
+    _candidates = ["/opt/homebrew/etc/openssl@3/cert.pem", "/usr/local/etc/openssl@3/cert.pem"]
+    for _p in _candidates:
+        if os.path.exists(_p):
+            CERT_PATH = _p
+            break
+if CERT_PATH:
     os.environ.setdefault("SSL_CERT_FILE", CERT_PATH)
     os.environ.setdefault("REQUESTS_CA_BUNDLE", CERT_PATH)
     os.environ.setdefault("CURL_CA_BUNDLE", CERT_PATH)
 
-SEARXNG_URL = "http://127.0.0.1:8888"
-PROXY_URL = "http://127.0.0.1:7897"
-DDGS_BIN = os.getenv("DDGS_BIN", "/opt/homebrew/bin/ddgs")
+SEARXNG_URL = os.getenv("SEARXNG_URL", "http://127.0.0.1:8888")
+PROXY_URL = os.getenv("PROXY_URL", "http://127.0.0.1:7897")
+DDGS_BIN = os.getenv("DDGS_BIN", "ddgs")
 
 _LOCAL = requests.Session()
 _LOCAL.trust_env = False
@@ -51,16 +89,15 @@ NOISE_HOSTS = [
     # 社交媒体 / 个人页面（非官方信息）
     "linkedin.com/in/", "facebook.com", "twitter.com", "youtube.com",
     # 问答平台（内容质量低）
-    "wenwen.sogou.com", "bing.com/search?q=",
+    "wenwen.sogou.com", "zhidao.baidu.com", "bing.com/search?q=",
     # 机器聚合站
-    "repo-market.com",
+    "company-listing.org", "mfrbee.com", "repo-market.com",
     # 外国垃圾站（DDG 对中文公司名返回的噪声）
-    "netshoes.com.br", "trauer-in-thueringen.de",
-    "amazon.com", "ebay.com",
+    "netshoes.com.br", "trauer-in-thueringen.de", "amazon.", "ebay.",
     "alibaba.com/offer", "made-in-china.com", "globalsources.com",
     "europages.", "wlw.de", "kompass.com", "dnb.com",
-    # 讣告/婚庆/无关生活服务（完整域名匹配避免误杀）
-    "trauer-in-thueringen.de", "bestattung", "beerdigung", "obituary",
+    # 讣告/婚庆/无关生活服务
+    "trauer", "bestattung", "beerdigung", "obituary",
     # 价格比较/购物聚合
     "preisvergleich", "kelkoo", "shopzilla", "pricegrabber",
 ]
@@ -161,7 +198,7 @@ def _ddg_search(query: str, max_results: int = 10) -> list:
     # CLI fallback（也清代理）
     backup2 = _clear_proxy_env()
     try:
-        if not os.path.exists(DDGS_BIN):
+        if not shutil.which(DDGS_BIN):
             return []
         result = subprocess.run(
             [DDGS_BIN, "text", "-k", query, "-m", str(max_results + 5), "-r", "wt-wt"],
@@ -245,7 +282,7 @@ def _searxng_search(query: str, max_results: int = 10, engines: str = "", timeou
 # ── Layer 3: Google 直接抓取 ──────────────────────────
 
 def google_search(query: str, max_results: int = 10) -> list:
-    """走 7897 代理抓 Google 搜索页。
+    """走代理抓 Google 搜索页。
     
     Google 现在返回 JS 渲染页面，Fetcher 无法解析。
     改用 requests + 代理 + 特殊 User-Agent 请求非 JS 版本。
@@ -426,7 +463,7 @@ def verify_engines() -> dict:
         from ddgs import DDGS
         ddg_ok = True
     except ImportError:
-        ddg_ok = os.path.exists(DDGS_BIN)
+        ddg_ok = bool(shutil.which(DDGS_BIN))
 
     scrapling_ok = False
     try:
@@ -450,15 +487,17 @@ def verify_engines() -> dict:
         pass
 
     proxy_ok = False
+    _proxy_host = PROXY_URL.replace("http://", "").replace("https://", "").rstrip("/")
     try:
-        r = requests.get("http://127.0.0.1:7897", timeout=3)
+        r = requests.get(PROXY_URL, timeout=3)
         proxy_ok = True
     except Exception:
         try:
             import socket
+            _addr, _, _port = _proxy_host.partition(":")
             s = socket.socket()
             s.settimeout(2)
-            s.connect(("127.0.0.1", 7897))
+            s.connect((_addr, int(_port or 7897)))
             s.close()
             proxy_ok = True
         except Exception:

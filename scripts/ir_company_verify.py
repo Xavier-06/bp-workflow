@@ -29,8 +29,11 @@ import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
-os.environ.setdefault('SSL_CERT_FILE', '/opt/homebrew/etc/openssl@3/cert.pem')
-os.environ.setdefault('REQUESTS_CA_BUNDLE', '/opt/homebrew/etc/openssl@3/cert.pem')
+for _p in ['/opt/homebrew/etc/openssl@3/cert.pem', '/usr/local/etc/openssl@3/cert.pem']:
+    if os.path.exists(_p):
+        os.environ.setdefault('SSL_CERT_FILE', _p)
+        os.environ.setdefault('REQUESTS_CA_BUNDLE', _p)
+        break
 
 WORKSPACE = Path(__file__).resolve().parent.parent
 TASKS_DIR = WORKSPACE / 'data' / 'tasks'

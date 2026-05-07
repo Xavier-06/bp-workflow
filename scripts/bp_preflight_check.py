@@ -29,7 +29,11 @@ from datetime import datetime
 WORKSPACE = Path(__file__).resolve().parent.parent
 TASKS_DIR = WORKSPACE / 'tasks'
 CRED_FILE = WORKSPACE / '.credentials' / 'investment-research.env'
-CERT_FILE = '/opt/homebrew/etc/openssl@3/cert.pem'
+CERT_FILE = ''
+for _p in ['/opt/homebrew/etc/openssl@3/cert.pem', '/usr/local/etc/openssl@3/cert.pem']:
+    if os.path.exists(_p):
+        CERT_FILE = _p
+        break
 
 # ── 关键词库 ──
 VC_KEYWORDS = ['天使', 'angel', 'pre-a', 'a 轮', 'b 轮', 'seed', 'series a', 'pmf',

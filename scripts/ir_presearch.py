@@ -19,9 +19,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TASKS_DIR = ROOT / 'data' / 'tasks'
 
-# SSL env
-os.environ.setdefault('SSL_CERT_FILE', '/opt/homebrew/etc/openssl@3/cert.pem')
-os.environ.setdefault('REQUESTS_CA_BUNDLE', '/opt/homebrew/etc/openssl@3/cert.pem')
+# SSL env (auto-detect cert path)
+for _p in ['/opt/homebrew/etc/openssl@3/cert.pem', '/usr/local/etc/openssl@3/cert.pem']:
+    if os.path.exists(_p):
+        os.environ.setdefault('SSL_CERT_FILE', _p)
+        os.environ.setdefault('REQUESTS_CA_BUNDLE', _p)
+        break
 
 CURRENT_YEAR = datetime.now().year
 PREV_YEAR = CURRENT_YEAR - 1
