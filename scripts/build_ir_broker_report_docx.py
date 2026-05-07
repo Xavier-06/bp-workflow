@@ -2,12 +2,11 @@
 """
 build_ir_broker_report_docx.py — 将 step8 统稿转为券商风格 Word 研报
 
-v3 (2026-04-22):
-  - 表格美化：表头底纹、斑马纹、自适应列宽、紧凑内边距（与 BP v3 统一）
-  - 来源列表从正文剥离，统一编号放末尾
-  - 行内格式完整支持（加粗、链接、代码）
-  - 内部路径/命令/元数据清洗
-  - 标题页不暴露内部 task ID
+v5 (2026-05-07):
+  - 字体修复：所有 run 显式设置 font.name="Microsoft YaHei"，
+    解决 macOS 上因缺 font.name 导致西文字体回退渲染不一致（歪七扭八）的问题
+  - _add_inline_formatted_text() 增加 font_size 参数，统一控制字号
+  - 表格、列表、引用块、脚注、来源区全部补上显式 font.name
 """
 from __future__ import annotations
 
@@ -26,6 +25,29 @@ from docx.oxml import parse_xml
 ROOT = Path(__file__).resolve().parent.parent
 TASKS = ROOT / 'data' / 'tasks'
 REPORTS = ROOT / 'reports'
+
+
+# ─── 东亚字体设置（与 BP build_bp_dd_report_docx.py 对齐）────────
+
+def _set_eastasia_font_on_style(style, font_name: str):
+    """在样式级别设置 eastAsia 字体（解决 MS 明朝问题）"""
+    rPr = style.element.get_or_add_rPr()
+    rFonts = rPr.find(qn('w:rFonts'))
+    if rFonts is None:
+        rFonts = rPr.makeelement(qn('w:rFonts'), {})
+        rPr.insert(0, rFonts)
+    rFonts.set(qn('w:eastAsia'), font_name)
+
+
+def _set_eastasia_font_on_run(run, font_name: str):
+    """在 run 级别设置 eastAsia 字体"""
+    rPr = run._r.get_or_add_rPr()
+    rFonts = rPr.find(qn('w:rFonts'))
+    if rFonts is None:
+        rFonts = rPr.makeelement(qn('w:rFonts'), {})
+        rPr.insert(0, rFonts)
+    rFonts.set(qn('w:eastAsia'), font_name)
+
 
 # ─── 内部信息清洗模式 ────────────────────────────
 
@@ -125,14 +147,45 @@ def read_text(path: Path) -> str:
 # ─── 来源剥离 ────────────────────────────────────
 
 def _strip_source_section(markdown: str) -> tuple[str, list[dict]]:
-    """从 Markdown 中剥离来源/参考章节，返回 (cleaned_text, sources)。"""
+    """从 Markdown 中剥离来源/参考章节，返回 (cleaned_text, sources)。
+    
+    同时提取 [^N] 格式的脚注定义。
+    """
     lines = markdown.split("\n")
     cleaned_lines = []
     sources: list[dict] = []
     in_source_section = False
     in_source_table = False
 
+    # 第一遍：提取 [^N] 脚注定义
+    footnote_defs: dict[str, dict] = {}
+    remaining_lines = []
+
     for line in lines:
+        stripped = line.strip()
+        fn_match = re.match(r"^\[\^(\d+)\]:\s*(.+)$", stripped)
+        if fn_match:
+            fn_id = fn_match.group(1)
+            fn_content = fn_match.group(2).strip()
+            url_match = re.search(r"(https?://[^\s\)\]\"']+)", fn_content)
+            url = url_match.group(1) if url_match else ""
+            name = re.sub(r"\s*https?://[^\s\)\]\"']+\s*", "", fn_content).strip().rstrip("—–- ")
+            footnote_defs[fn_id] = {
+                "id": fn_id,
+                "name": name or fn_content[:80],
+                "url": url,
+                "usage": "",
+                "is_footnote": True,
+            }
+            continue
+        remaining_lines.append(line)
+
+    # 将脚注定义添加到 sources
+    for fn_id in sorted(footnote_defs.keys(), key=int):
+        sources.append(footnote_defs[fn_id])
+
+    # 第二遍：处理来源列表章节
+    for line in remaining_lines:
         stripped = line.strip()
 
         if re.match(r"^#{1,3}\s+\d*\.?\s*(?:来源|参考|引用|References|Sources)", stripped, re.IGNORECASE):
@@ -159,7 +212,6 @@ def _strip_source_section(markdown: str) -> tuple[str, list[dict]]:
                     row_text = " ".join(cells)
                     if _is_internal_source_row(row_text):
                         continue
-                    # 提取 URL
                     url = ""
                     for cell in cells:
                         if cell.startswith("http"):
@@ -173,6 +225,24 @@ def _strip_source_section(markdown: str) -> tuple[str, list[dict]]:
                     }
                     if src["url"].startswith("http"):
                         sources.append(src)
+                continue
+
+            # [^N] 格式的来源列表
+            fn_list_match = re.match(r"^\[\^(\d+)\]\s+(.+)$", stripped)
+            if fn_list_match:
+                fn_id = fn_list_match.group(1)
+                fn_content = fn_list_match.group(2).strip()
+                url_match = re.search(r"(https?://[^\s\)\]\"']+)", fn_content)
+                url = url_match.group(1) if url_match else ""
+                name = re.sub(r"\s*https?://[^\s\)\]\"']+\s*", "", fn_content).strip().rstrip("—–- ")
+                if fn_id not in footnote_defs:
+                    sources.append({
+                        "id": fn_id,
+                        "name": name or fn_content[:80],
+                        "url": url,
+                        "usage": "",
+                        "is_footnote": True,
+                    })
                 continue
 
             # 非表格的来源行（如 [1] xxx — url）
@@ -221,26 +291,55 @@ def parse_markdown_table(lines: list[str], start_idx: int) -> tuple[list[list[st
     return rows, i
 
 
-def _add_inline_formatted_text(paragraph, text: str):
-    pattern = r"(\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`)"
+def _add_inline_formatted_text(paragraph, text: str, font_size: Pt = Pt(11)):
+    """解析行内 Markdown 格式并添加到段落。支持 [^N] 脚注标记渲染为上标。
+    
+    所有 run 显式设置 font.name="Microsoft YaHei" + font_size，
+    避免 macOS 上因缺字体声明导致渲染不一致。
+    """
+    pattern = r"(\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\)|\[\^(\d+)\]|`([^`]+)`)"
     last_end = 0
     for m in re.finditer(pattern, text):
         if m.start() > last_end:
-            paragraph.add_run(text[last_end:m.start()])
+            run = paragraph.add_run(text[last_end:m.start()])
+            run.font.name = "Microsoft YaHei"
+            run.font.size = font_size
+            _set_eastasia_font_on_run(run, "宋体")
         if m.group(2) is not None:
+            # **bold**
             run = paragraph.add_run(m.group(2))
             run.font.bold = True
-        elif m.group(3) is not None:
+            run.font.name = "Microsoft YaHei"
+            run.font.size = font_size
+            _set_eastasia_font_on_run(run, "宋体")
+        elif m.group(3) is not None and m.group(5) is None:
+            # [text](url) hyperlink
             run = paragraph.add_run(m.group(3))
             run.font.color.rgb = RGBColor(0x2B, 0x57, 0x9A)
             run.font.underline = True
+            run.font.name = "Microsoft YaHei"
+            run.font.size = font_size
+            _set_eastasia_font_on_run(run, "宋体")
         elif m.group(5) is not None:
-            run = paragraph.add_run(m.group(5))
+            # [^N] footnote reference → render as superscript
+            fn_num = m.group(5)
+            run = paragraph.add_run(f"[{fn_num}]")
+            run.font.superscript = True
+            run.font.size = Pt(8)
+            run.font.color.rgb = RGBColor(0x2B, 0x57, 0x9A)
+            run.font.name = "Microsoft YaHei"
+            _set_eastasia_font_on_run(run, "宋体")
+        elif m.group(6) is not None:
+            # `code`
+            run = paragraph.add_run(m.group(6))
             run.font.name = "Consolas"
             run.font.size = Pt(9)
         last_end = m.end()
     if last_end < len(text):
-        paragraph.add_run(text[last_end:])
+        run = paragraph.add_run(text[last_end:])
+        run.font.name = "Microsoft YaHei"
+        run.font.size = font_size
+        _set_eastasia_font_on_run(run, "宋体")
 
 
 def add_table_to_doc(doc: Document, rows: list[list[str]]):
@@ -286,14 +385,17 @@ def add_table_to_doc(doc: Document, rows: list[list[str]]):
             p.paragraph_format.space_before = Pt(1)
             p.paragraph_format.space_after = Pt(1)
 
-            _add_inline_formatted_text(p, cell_text.strip())
+            _add_inline_formatted_text(p, cell_text.strip(), font_size=Pt(9))
 
             for run in p.runs:
+                run.font.name = "Microsoft YaHei"
                 run.font.size = Pt(9)
+                _set_eastasia_font_on_run(run, "宋体")
 
             if i == 0:
                 for run in p.runs:
                     run.font.bold = True
+                    run.font.name = "Microsoft YaHei"
                     run.font.size = Pt(9)
                     run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
                 shading = parse_xml(
@@ -380,11 +482,11 @@ def convert_markdown_to_docx(text: str, doc: Document):
             p.paragraph_format.left_indent = Cm(0.8)
             p.paragraph_format.space_before = Pt(3)
             p.paragraph_format.space_after = Pt(3)
-            _add_inline_formatted_text(p, quote_text)
+            _add_inline_formatted_text(p, quote_text, font_size=Pt(10))
             for run in p.runs:
                 run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
                 run.font.italic = True
-                run.font.size = Pt(10)
+                # font.name and font.size already set by _add_inline_formatted_text
             i += 1
             continue
 
@@ -392,7 +494,7 @@ def convert_markdown_to_docx(text: str, doc: Document):
         if stripped.startswith('- ') or stripped.startswith('* '):
             item_text = stripped[2:]
             p = doc.add_paragraph(style='List Bullet')
-            _add_inline_formatted_text(p, item_text)
+            _add_inline_formatted_text(p, item_text, font_size=Pt(10.5))
             i += 1
             continue
 
@@ -401,7 +503,7 @@ def convert_markdown_to_docx(text: str, doc: Document):
         if ol_match:
             item_text = ol_match.group(2)
             p = doc.add_paragraph(style='List Number')
-            _add_inline_formatted_text(p, item_text)
+            _add_inline_formatted_text(p, item_text, font_size=Pt(10.5))
             i += 1
             continue
 
@@ -410,6 +512,9 @@ def convert_markdown_to_docx(text: str, doc: Document):
             p = doc.add_paragraph()
             run = p.add_run(stripped[2:-2])
             run.font.bold = True
+            run.font.name = "Microsoft YaHei"
+            run.font.size = Pt(11)
+            _set_eastasia_font_on_run(run, "宋体")
             i += 1
             continue
 
@@ -439,17 +544,14 @@ def main():
     if pkg_path.exists():
         pkg = json.loads(pkg_path.read_text(encoding='utf-8'))
     else:
-        # 容错：尝试从 task_registry 读取
         registry_path = ROOT / 'tasks' / 'task_registry' / f'{tid}.json'
         if registry_path.exists():
             pkg = json.loads(registry_path.read_text(encoding='utf-8'))
         else:
-            # 最终兜底：从 step8_master.md 的第一行标题推断 entity
             pkg = {'query': '深度研报', 'entity': ''}
             step8_fallback = TASKS / f'{tid}-step8_master.md'
             if step8_fallback.exists():
                 first_line = step8_fallback.read_text(encoding='utf-8').split('\n', 1)[0]
-                # 尝试从 "# XXX 深度研究报告" 提取公司名
                 m = re.match(r'^#\s+(.+?)(?:深度|投资|研究|研报)', first_line)
                 if m:
                     pkg['entity'] = m.group(1).strip()
@@ -459,7 +561,6 @@ def main():
     # Read memo
     memo_path = TASKS / f'{tid}-step8_master.md'
     if not memo_path.exists():
-        # 尝试 workspace 路径
         ws_memo = ROOT / 'jobs' / tid / 'outputs' / 'step8_master.md'
         if ws_memo.exists():
             memo_path = ws_memo
@@ -494,11 +595,12 @@ def main():
 
     doc = Document()
 
-    # 样式
+    # ── 样式（与 BP 对齐：font.name = Microsoft YaHei, eastAsia = 宋体）──
     style = doc.styles["Normal"]
     font = style.font
     font.name = "Microsoft YaHei"
     font.size = Pt(11)
+    _set_eastasia_font_on_style(style, "宋体")
     style.paragraph_format.space_after = Pt(6)
     style.paragraph_format.line_spacing = 1.2
 
@@ -509,6 +611,7 @@ def main():
         h_style.font.size = Pt(size_pt)
         h_style.font.bold = True
         h_style.font.color.rgb = RGBColor(0x1F, 0x4E, 0x79)
+        _set_eastasia_font_on_style(h_style, "宋体")
         h_style.paragraph_format.space_before = Pt(sp_before)
         h_style.paragraph_format.space_after = Pt(4)
 
@@ -516,7 +619,9 @@ def main():
     for list_style_name in ["List Bullet", "List Number"]:
         try:
             ls = doc.styles[list_style_name]
+            ls.font.name = "Microsoft YaHei"
             ls.font.size = Pt(10.5)
+            _set_eastasia_font_on_style(ls, "宋体")
             ls.paragraph_format.space_after = Pt(3)
         except KeyError:
             pass
@@ -533,6 +638,7 @@ def main():
     run.font.size = Pt(28)
     run.font.bold = True
     run.font.color.rgb = RGBColor(0x1F, 0x4E, 0x79)
+    _set_eastasia_font_on_run(run, "宋体")
 
     doc.add_paragraph("")
 
@@ -541,6 +647,7 @@ def main():
     run = meta.add_run(f'生成日期: {datetime.now().strftime("%Y年%m月%d日")}')
     run.font.size = Pt(11)
     run.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+    _set_eastasia_font_on_run(run, "宋体")
 
     conf = doc.add_paragraph()
     conf.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
@@ -548,6 +655,7 @@ def main():
     run.font.size = Pt(10)
     run.font.color.rgb = RGBColor(0xCC, 0x33, 0x33)
     run.font.italic = True
+    _set_eastasia_font_on_run(run, "宋体")
 
     doc.add_page_break()
 
@@ -559,17 +667,65 @@ def main():
     doc.add_heading('来源与参考', level=1)
 
     if sources:
-        doc.add_paragraph("以下为本报告引用的全部外部来源，统一编号。")
-        doc.add_paragraph("")
-        source_rows = [["编号", "来源", "URL", "用途"]]
-        for idx, src in enumerate(sources, 1):
-            source_rows.append([
-                f"[{idx}]",
-                src.get("name", ""),
-                src.get("url", ""),
-                src.get("usage", ""),
-            ])
-        add_table_to_doc(doc, source_rows)
+        # 区分脚注来源和表格来源
+        footnote_sources = [s for s in sources if s.get("is_footnote")]
+        table_sources = [s for s in sources if not s.get("is_footnote")]
+
+        if footnote_sources:
+            try:
+                footnote_sources.sort(key=lambda s: int(s.get("id", "0")))
+            except (ValueError, TypeError):
+                pass
+
+            doc.add_paragraph("以下为本报告引用的全部外部来源，统一编号。正文中 [N] 上标标记对应此处编号。")
+            doc.add_paragraph("")
+
+            for src in footnote_sources:
+                fn_id = src.get("id", "?")
+                name = src.get("name", "")
+                url = src.get("url", "")
+
+                p = doc.add_paragraph()
+                p.paragraph_format.space_before = Pt(2)
+                p.paragraph_format.space_after = Pt(2)
+
+                run_id = p.add_run(f"[{fn_id}] ")
+                run_id.font.bold = True
+                run_id.font.name = "Microsoft YaHei"
+                run_id.font.size = Pt(10)
+                run_id.font.color.rgb = RGBColor(0x2B, 0x57, 0x9A)
+                _set_eastasia_font_on_run(run_id, "宋体")
+
+                if name:
+                    run_name = p.add_run(f"{name}")
+                    run_name.font.name = "Microsoft YaHei"
+                    run_name.font.size = Pt(10)
+                    _set_eastasia_font_on_run(run_name, "宋体")
+
+                if url:
+                    if name:
+                        run_sep = p.add_run(" — ")
+                        run_sep.font.name = "Microsoft YaHei"
+                        run_sep.font.size = Pt(10)
+                        run_sep.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
+                        _set_eastasia_font_on_run(run_sep, "宋体")
+                    run_url = p.add_run(url)
+                    run_url.font.name = "Microsoft YaHei"
+                    run_url.font.size = Pt(9)
+                    run_url.font.color.rgb = RGBColor(0x2B, 0x57, 0x9A)
+                    _set_eastasia_font_on_run(run_url, "宋体")
+
+        if table_sources:
+            source_rows = [["编号", "来源", "URL", "用途"]]
+            start_idx = len(footnote_sources) + 1
+            for idx, src in enumerate(table_sources, start_idx):
+                source_rows.append([
+                    f"[{idx}]",
+                    src.get("name", ""),
+                    src.get("url", ""),
+                    src.get("usage", ""),
+                ])
+            add_table_to_doc(doc, source_rows)
     else:
         # fallback: 从正文提取 URL
         urls = re.findall(r"https?://[^\s\)\]\"']+", memo)
@@ -599,8 +755,10 @@ def main():
     for d in disclaimers:
         p = doc.add_paragraph(style='List Bullet')
         run = p.add_run(d)
+        run.font.name = "Microsoft YaHei"
         run.font.size = Pt(10)
         run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+        _set_eastasia_font_on_run(run, "宋体")
 
     # ── 保存 ──
     out_path.parent.mkdir(parents=True, exist_ok=True)

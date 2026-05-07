@@ -239,26 +239,37 @@ def _parse_table(lines: list[str], start: int) -> tuple[list[list[str]], int]:
     return rows, i
 
 
-def _add_inline_formatted_text(paragraph, text: str):
-    """解析行内 Markdown 格式并添加到段落。支持 [^N] 脚注标记渲染为上标。"""
+def _add_inline_formatted_text(paragraph, text: str, font_size=None):
+    """解析行内 Markdown 格式并添加到段落。支持 [^N] 脚注标记渲染为上标。
+    
+    所有 run 显式设置 font.name="Microsoft YaHei"，
+    避免 macOS 上因缺字体声明导致渲染不一致。
+    """
     from docx.shared import Pt, RGBColor
-    # 扩展 pattern 以匹配 [^N] 脚注标记
+    if font_size is None:
+        font_size = Pt(11)
     pattern = r"(\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\)|\[\^(\d+)\]|`([^`]+)`)"
     last_end = 0
     for m in re.finditer(pattern, text):
         if m.start() > last_end:
             run = paragraph.add_run(text[last_end:m.start()])
+            run.font.name = "Microsoft YaHei"
+            run.font.size = font_size
             _set_eastasia_font_on_run(run, "宋体")
         if m.group(2) is not None:
             # **bold**
             run = paragraph.add_run(m.group(2))
             run.font.bold = True
+            run.font.name = "Microsoft YaHei"
+            run.font.size = font_size
             _set_eastasia_font_on_run(run, "宋体")
         elif m.group(3) is not None and m.group(5) is None:
             # [text](url) hyperlink
             run = paragraph.add_run(m.group(3))
             run.font.color.rgb = RGBColor(0x2B, 0x57, 0x9A)
             run.font.underline = True
+            run.font.name = "Microsoft YaHei"
+            run.font.size = font_size
             _set_eastasia_font_on_run(run, "宋体")
         elif m.group(5) is not None:
             # [^N] footnote reference → render as superscript
@@ -267,6 +278,7 @@ def _add_inline_formatted_text(paragraph, text: str):
             run.font.superscript = True
             run.font.size = Pt(8)
             run.font.color.rgb = RGBColor(0x2B, 0x57, 0x9A)
+            run.font.name = "Microsoft YaHei"
             _set_eastasia_font_on_run(run, "宋体")
         elif m.group(6) is not None:
             # `code`
@@ -276,6 +288,8 @@ def _add_inline_formatted_text(paragraph, text: str):
         last_end = m.end()
     if last_end < len(text):
         run = paragraph.add_run(text[last_end:])
+        run.font.name = "Microsoft YaHei"
+        run.font.size = font_size
         _set_eastasia_font_on_run(run, "宋体")
 
 
@@ -331,10 +345,11 @@ def _add_table_to_doc(doc, rows: list[list[str]]):
             p.paragraph_format.space_before = Pt(1)
             p.paragraph_format.space_after = Pt(1)
 
-            _add_inline_formatted_text(p, cell_text.strip())
+            _add_inline_formatted_text(p, cell_text.strip(), font_size=Pt(9))
 
             # 字号
             for run in p.runs:
+                run.font.name = "Microsoft YaHei"
                 run.font.size = Pt(9)
                 _set_eastasia_font_on_run(run, "宋体")
 
@@ -342,6 +357,7 @@ def _add_table_to_doc(doc, rows: list[list[str]]):
             if row_idx == 0:
                 for run in p.runs:
                     run.font.bold = True
+                    run.font.name = "Microsoft YaHei"
                     run.font.size = Pt(9)
                     run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
                 shading = parse_xml(
@@ -425,12 +441,11 @@ def _render_markdown_to_doc(doc, markdown_text: str):
             p.paragraph_format.left_indent = Cm(0.8)
             p.paragraph_format.space_before = Pt(3)
             p.paragraph_format.space_after = Pt(3)
-            _add_inline_formatted_text(p, quote_text)
+            _add_inline_formatted_text(p, quote_text, font_size=Pt(10))
             for run in p.runs:
                 run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
                 run.font.italic = True
-                run.font.size = Pt(10)
-                _set_eastasia_font_on_run(run, "宋体")
+                # font.name and font.size already set by _add_inline_formatted_text
             i += 1
             continue
 
@@ -446,7 +461,7 @@ def _render_markdown_to_doc(doc, markdown_text: str):
         if stripped.startswith("- ") or stripped.startswith("* "):
             item_text = stripped[2:]
             p = doc.add_paragraph(style="List Bullet")
-            _add_inline_formatted_text(p, item_text)
+            _add_inline_formatted_text(p, item_text, font_size=Pt(10.5))
             i += 1
             continue
 
@@ -455,7 +470,7 @@ def _render_markdown_to_doc(doc, markdown_text: str):
         if ol_match:
             item_text = ol_match.group(2)
             p = doc.add_paragraph(style="List Number")
-            _add_inline_formatted_text(p, item_text)
+            _add_inline_formatted_text(p, item_text, font_size=Pt(10.5))
             i += 1
             continue
 
@@ -464,6 +479,9 @@ def _render_markdown_to_doc(doc, markdown_text: str):
             p = doc.add_paragraph()
             run = p.add_run(stripped[2:-2])
             run.font.bold = True
+            run.font.name = "Microsoft YaHei"
+            run.font.size = Pt(11)
+            _set_eastasia_font_on_run(run, "宋体")
             i += 1
             continue
 
@@ -562,6 +580,7 @@ def build_bp_dd_report(
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = title.add_run("商业计划尽调报告")
+    run.font.name = "Microsoft YaHei"
     run.font.size = Pt(28)
     run.font.bold = True
     run.font.color.rgb = RGBColor(0x1F, 0x4E, 0x79)
@@ -572,6 +591,7 @@ def build_bp_dd_report(
     subtitle = doc.add_paragraph()
     subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = subtitle.add_run(entity)
+    run.font.name = "Microsoft YaHei"
     run.font.size = Pt(22)
     run.font.color.rgb = RGBColor(0x4A, 0x4A, 0x6A)
     _set_eastasia_font_on_run(run, "宋体")
@@ -582,12 +602,14 @@ def build_bp_dd_report(
     meta = doc.add_paragraph()
     meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = meta.add_run(f"生成日期: {time.strftime('%Y年%m月%d日')}")
+    run.font.name = "Microsoft YaHei"
     run.font.size = Pt(11)
     run.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
 
     conf = doc.add_paragraph()
     conf.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = conf.add_run("机密 — 仅供内部参考")
+    run.font.name = "Microsoft YaHei"
     run.font.size = Pt(10)
     run.font.color.rgb = RGBColor(0xCC, 0x33, 0x33)
     run.font.italic = True
@@ -710,6 +732,7 @@ def build_bp_dd_report(
                 # 编号（上标样式）
                 run_id = p.add_run(f"[{fn_id}] ")
                 run_id.font.bold = True
+                run_id.font.name = "Microsoft YaHei"
                 run_id.font.size = Pt(10)
                 run_id.font.color.rgb = RGBColor(0x2B, 0x57, 0x9A)
                 _set_eastasia_font_on_run(run_id, "宋体")
@@ -717,6 +740,7 @@ def build_bp_dd_report(
                 # 来源名称
                 if name:
                     run_name = p.add_run(f"{name}")
+                    run_name.font.name = "Microsoft YaHei"
                     run_name.font.size = Pt(10)
                     _set_eastasia_font_on_run(run_name, "宋体")
                 
@@ -724,10 +748,12 @@ def build_bp_dd_report(
                 if url:
                     if name:
                         run_sep = p.add_run(" — ")
+                        run_sep.font.name = "Microsoft YaHei"
                         run_sep.font.size = Pt(10)
                         run_sep.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
                         _set_eastasia_font_on_run(run_sep, "宋体")
                     run_url = p.add_run(url)
+                    run_url.font.name = "Microsoft YaHei"
                     run_url.font.size = Pt(9)
                     run_url.font.color.rgb = RGBColor(0x2B, 0x57, 0x9A)
                     _set_eastasia_font_on_run(run_url, "宋体")
@@ -735,6 +761,7 @@ def build_bp_dd_report(
                 # 用途
                 if usage:
                     run_usage = p.add_run(f"（{usage}）")
+                    run_usage.font.name = "Microsoft YaHei"
                     run_usage.font.size = Pt(9)
                     run_usage.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
                     _set_eastasia_font_on_run(run_usage, "宋体")
@@ -789,6 +816,7 @@ def build_bp_dd_report(
     for d in disclaimers:
         p = doc.add_paragraph(style="List Bullet")
         run = p.add_run(d)
+        run.font.name = "Microsoft YaHei"
         run.font.size = Pt(10)
         run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
         _set_eastasia_font_on_run(run, "宋体")
