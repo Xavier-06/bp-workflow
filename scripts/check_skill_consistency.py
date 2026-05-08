@@ -8,6 +8,8 @@ Verifies:
   3. No duplicate "golden snippets" outside their allowed locations
   4. No SKILL.md exceeds 200 lines (progressive disclosure threshold)
   5. All cross-skill references resolve
+  6. SKILL.md instruction_store references exist in index.json
+  7. instruction_store index.json roles are referenced by some SKILL.md
 
 Exit 0 if clean, 1 otherwise.
 """
@@ -187,6 +189,91 @@ for refs_dir in sorted(SKILLS.glob("*/references")):
         text = skill_md.read_text()
         if ref_file.name not in text:
             warn(f"{rel(ref_file)}: exists but not referenced in {rel(skill_md)}")
+
+
+# --- 6. SKILL.md → instruction_store registration check ---
+print("6. Checking SKILL.md instruction_store references are in index.json...")
+
+# Collect all registered roles from all index.json files
+registered_roles: dict[str, dict] = {}  # key -> {file, store}
+for store_dir in sorted(ROOT.glob("instruction_store_*")):
+    idx = store_dir / "index.json"
+    if not idx.is_file():
+        continue
+    try:
+        data = json.loads(idx.read_text())
+    except json.JSONDecodeError:
+        continue
+    for role in data.get("roles", []):
+        registered_roles[role.get("key", "")] = {
+            "file": role.get("file", ""),
+            "store": store_dir.name,
+        }
+
+# Find instruction_store file references in SKILL.md files
+IS_RE = re.compile(r'\{INSTRUCTION_STORE\}/([\w\u4e00-\u9fff_]+\.md)')
+for skill_dir in sorted(SKILLS.iterdir()):
+    if not skill_dir.is_dir():
+        continue
+    for md_file in sorted(skill_dir.rglob("*.md")):
+        text = md_file.read_text()
+        for m in IS_RE.finditer(text):
+            ref_file = m.group(1)
+            checked += 1
+            # Check if this file is registered in any index.json
+            found_in_index = False
+            for role_key, role_info in registered_roles.items():
+                if role_info["file"] == ref_file:
+                    found_in_index = True
+                    break
+            if not found_in_index:
+                warn(
+                    f"{rel(md_file)}: references {ref_file} but it is not registered "
+                    f"in any instruction_store index.json"
+                )
+
+            # Also check the file actually exists
+            for store_dir in sorted(ROOT.glob("instruction_store_*")):
+                if (store_dir / ref_file).is_file():
+                    break
+            else:
+                err(
+                    f"{rel(md_file)}: references {ref_file} but file not found "
+                    f"in any instruction_store directory"
+                )
+
+
+# --- 7. instruction_store roles → SKILL.md reverse reference check ---
+print("7. Checking instruction_store roles are referenced by SKILL.md...")
+
+# Collect all instruction_store file references across all SKILL.md and references/
+all_is_refs: set[str] = set()
+for skill_dir in sorted(SKILLS.iterdir()):
+    if not skill_dir.is_dir():
+        continue
+    for md_file in sorted(skill_dir.rglob("*.md")):
+        text = md_file.read_text()
+        for m in IS_RE.finditer(text):
+            all_is_refs.add(m.group(1))
+
+for store_dir in sorted(ROOT.glob("instruction_store_*")):
+    idx = store_dir / "index.json"
+    if not idx.is_file():
+        continue
+    try:
+        data = json.loads(idx.read_text())
+    except json.JSONDecodeError:
+        continue
+    for role in data.get("roles", []):
+        checked += 1
+        role_file = role.get("file", "")
+        if role_file not in all_is_refs:
+            # 投研_主管 is coordinator-internal, not referenced in SKILL.md directly — OK
+            # 投研_主笔_预测与估值 was removed from researcher steps — might be orphan
+            warn(
+                f"{store_dir.name}/index.json: role '{role.get('key')}' ({role_file}) "
+                f"is not referenced by any SKILL.md or references/ file"
+            )
 
 
 # --- Report ---
