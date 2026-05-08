@@ -47,6 +47,7 @@ ROLE_STEP_MAP = {
     '投研_主笔_财务分析': 'step4_finance',
     '投研_主笔_管理层': 'step5_mgmt',
     '投研_主笔_差异化洞察': 'step6_insight',
+    '投研_主笔_预测与估值': 'step6b_valuation',
     '投研_主笔_风险催化': 'step7_risk',
     '投研_主笔_文档汇总': 'step8_master',
 }
@@ -207,7 +208,7 @@ def ensure_task_package(task_id: str, entity: str = '', query: str = '', market:
         'execution_plan': {
             'mode': 'subagent-8-step-serial',
             'steps': ['step1_data', 'step2_industry', 'step3_biz', 'step4_finance',
-                      'step5_mgmt', 'step6_insight', 'step7_risk', 'step8_master'],
+                      'step5_mgmt', 'step6_insight', 'step6b_valuation', 'step7_risk', 'step8_master'],
         },
         'model_route': {
             'controller': 'main orchestrator',

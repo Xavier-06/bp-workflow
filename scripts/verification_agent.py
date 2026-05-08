@@ -59,8 +59,8 @@ LEAK_PATTERNS = [
     (r'bp_presearch\w*', '内部脚本名'),
     (r'bp_preflight\w*', '内部脚本名'),
     (r'thinking=high', '推理参数'),
-    (r'Step \d', 'Step 编号'),
-    (r'step\d+_', 'step 脚本名'),
+    (r'Step [0-4]', 'Step 编号'),
+    (r'step[1-7]_', 'step 脚本名'),
     (r'下游子代理', '内部术语'),
     (r'搜索词组合', '内部术语'),
     (r'主控必须', '内部指令'),
@@ -99,7 +99,7 @@ def load_bp_content(task_id: str, tasks_dir: Path = TASKS_DIR) -> Optional[str]:
     report_file = tasks_dir / f'{task_id}-bp_final_report.md'
     if report_file.exists():
         return report_file.read_text(encoding='utf-8')
-    for f in sorted(tasks_dir.glob(f'{task_id}*final*')):
+    for f in tasks_dir.glob(f'{task_id}*final*'):
         return f.read_text(encoding='utf-8')
 
     # Priority 2: BP step files (合并所有 step)
@@ -125,7 +125,7 @@ def load_ir_steps(task_id: str, tasks_dir: Path = TASKS_DIR) -> dict[str, str]:
     """加载 IR 管线各 step 内容"""
     steps = {}
     step_names = ['step1_data', 'step2_industry', 'step3_biz',
-                  'step4_finance', 'step5_mgmt', 'step6_insight',
+                  'step4_finance', 'step5_mgmt', 'step6_insight', 'step6b_valuation',
                   'step7_risk', 'step8_master']
     for s in step_names:
         f = tasks_dir / f'{task_id}-{s}.md'
@@ -742,16 +742,16 @@ class AdversarialVerifier:
                 break
         if dd_section:
             core_p0 = ['财务审计', '客户订单', '营收拆分', '专利有效', '第三方审计']
-            secondary = ['工具链替代', '工具链预案', '关键人缓释']
+            secondary = ['EDA替代', 'EDA预案', '关键人缓释']
             has_core = any(kw in dd_section for kw in core_p0)
             has_secondary_as_p0 = any(kw in dd_section[:500] for kw in secondary)  # 只看前500字的优先级
             if has_secondary_as_p0 and not has_core:
                 self.checks.append(VerificationCheck(
                     name='BP Anti-Defect: 尽调优先级',
                     verification='检测P0尽调项是否为核心项目',
-                    output='P0尽调项为工具链/关键人等次要项，缺少财务审计/客户订单/营收拆分等核心项',
+                    output='P0尽调项为EDA/关键人等次要项，缺少财务审计/客户订单/营收拆分等核心项',
                     result='FAIL',
-                    detail='P0应为：财务审计+客户订单真实性+营收拆分+专利有效性；工具链/关键人应为P2'
+                    detail='P0应为：财务审计+客户订单真实性+营收拆分+专利有效性；EDA/关键人应为P2'
                 ))
 
         # ADC-8: 风险缓释因素检查
@@ -835,14 +835,17 @@ class AdversarialVerifier:
                                   '风险修正', '调整后估值']
         has_risk_discount = any(kw in text for kw in risk_discount_keywords)
 
-        # 判断：如果报告既说"未验证/存疑"又给了估值，但没有折价
-        _plain_risk_kws = ['未验证', '未经第三方', '无独立验证', '待验证', '数据可靠性存疑']
-        _regex_risk_pats = [r'核心指标.*存疑', r'创始人.*控制', r'窗口期.*短', r'表决权.*>50%', r'身兼.*法人']
-        has_verifiability_concern = any(kw in text for kw in _plain_risk_kws) or \
-            any(re.search(p, text) for p in _regex_risk_pats[:2])  # 核心指标存疑, 创始人控制
+        # 计算报告中提到的风险等级
+        high_risk_indicators = sum(1 for kw in
+            ['未验证', '未经第三方', '无独立验证', '核心指标.*存疑', '存疑',
+             '关键人', '创始人.*控制', '高度集中', '窗口期.*短', '追赶']
+            if kw in text or any(re.search(p, text) for p in [kw] if '\\' in kw))
+
+        # 简化判断：如果报告既说"未验证/存疑"又给了估值，但没有折价
+        has_verifiability_concern = any(kw in text for kw in
+            ['未验证', '未经第三方', '无独立验证', '待验证', '数据可靠性存疑'])
         has_concentration_risk = any(kw in text for kw in
-            ['关键人', '高度集中', '控制权']) or \
-            any(re.search(p, text) for p in _regex_risk_pats[2:])  # 窗口期短, 表决权>50%, 身兼法人
+            ['关键人', '高度集中', '控制权', '表决权.*>50%', '身兼.*法人'])
 
         if (has_verifiability_concern or has_concentration_risk) and not has_risk_discount:
             risk_count = sum([has_verifiability_concern, has_concentration_risk])

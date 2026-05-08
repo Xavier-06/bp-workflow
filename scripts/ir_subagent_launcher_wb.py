@@ -44,6 +44,7 @@ STEP_ROLE = {
     'step4_finance': '投研_主笔_财务分析',
     'step5_mgmt': '投研_主笔_管理层',
     'step6_insight': '投研_主笔_差异化洞察',
+    'step6b_valuation': '投研_主笔_预测与估值',
     'step7_risk': '投研_主笔_风险催化',
     'step8_master': '投研_主笔_文档汇总',
 }
@@ -55,15 +56,17 @@ STEP_DEPS = {
     'step3_biz': ['step1_data'],
     'step4_finance': ['step1_data'],
     'step5_mgmt': ['step1_data'],
-    'step6_insight': ['step1_data', 'step2_industry', 'step3_biz'],
-    'step7_risk': ['step1_data', 'step3_biz', 'step4_finance'],
-    'step8_master': ['step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step6_insight', 'step7_risk'],
+    'step6_insight': ['step1_data', 'step2_industry', 'step3_biz', 'step6b_valuation'],
+    'step6b_valuation': ['step1_data', 'step2_industry', 'step4_finance'],
+    'step7_risk': ['step1_data', 'step3_biz', 'step4_finance', 'step6b_valuation'],
+    'step8_master': ['step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step6_insight', 'step6b_valuation', 'step7_risk'],
 }
 
 # 并行发射波次
 LAUNCH_WAVES = [
     ['step1_data'],
     ['step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt'],
+    ['step6b_valuation'],
     ['step6_insight', 'step7_risk'],
     ['step8_master'],
 ]
@@ -76,6 +79,7 @@ STEP_TIMEOUTS = {
     'step4_finance': 900,
     'step5_mgmt': 900,
     'step6_insight': 900,
+    'step6b_valuation': 900,
     'step7_risk': 900,
     'step8_master': 1800,
 }
@@ -88,6 +92,7 @@ _STEP_KEYWORDS = {
     'step4_finance': 'financial report revenue profit margin cash flow ROE debt 财报 营收 毛利率 净利润 现金流',
     'step5_mgmt': 'management board governance ownership ESG compensation 管理层 董事会 股权结构 治理',
     'step6_insight': 'catalyst valuation target price investment thesis risk-reward 催化剂 估值 目标价 投资亮点',
+    'step6b_valuation': 'DCF valuation PE PB PS EV/EBITDA target price WACC comparable company valuation model 目标价 估值',
     'step7_risk': 'risk regulatory litigation competition macro threat 风险 监管 诉讼 竞争威胁 宏观',
     'step8_master': '',
 }
@@ -129,6 +134,12 @@ _STEP_QUERY_TEMPLATES = {
         '"{entity}" risks regulatory litigation competition macro',
         '"{entity}" risk analysis report',
         '"{entity}" 风险 监管 诉讼 竞争',
+    ],
+    'step6b_valuation': [
+        '"{entity}" DCF valuation target price WACC',
+        '"{entity}" comparable company valuation PE PB PS EV/EBITDA',
+        '"{entity}" analyst consensus target price',
+        '"{entity}" 估值 目标价 可比公司',
     ],
     'step8_master': [],
 }
@@ -195,6 +206,7 @@ def load_instruction(role_key: str) -> str:
         'step4_finance': '投研_主笔_财务分析',
         'step5_mgmt': '投研_主笔_管理层',
         'step6_insight': '投研_主笔_差异化洞察',
+        'step6b_valuation': '投研_主笔_预测与估值',
         'step7_risk': '投研_主笔_风险催化',
         'step8_master': '投研_主笔_文档汇总',
     }
@@ -819,7 +831,7 @@ def launch_next_wave(task_id: str, entity: str = '', query: str = '', market: st
 
     # 构建主 AI 的精确执行指令
     # step8_master 的前序 step 列表（需要读取它们的完整输出）
-    _STEP8_PRIOR_STEPS = ['step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step6_insight', 'step7_risk']
+    _STEP8_PRIOR_STEPS = ['step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step6_insight', 'step6b_valuation', 'step7_risk']
 
     task_instructions = []
     for r in dispatched:
@@ -838,7 +850,7 @@ def launch_next_wave(task_id: str, entity: str = '', query: str = '', market: st
             f'唯一完成条件：上述文件成功写入且内容完整。\n\n'
         )
 
-        # step8_master 特殊处理：注入前序 step 的完整输出文件路径
+        # step8_master 特殊处理：注入前序 step 的完整输出文件路径 + 统稿硬约束
         if step == 'step8_master':
             prior_paths = []
             for ps in _STEP8_PRIOR_STEPS:
@@ -848,6 +860,11 @@ def launch_next_wave(task_id: str, entity: str = '', query: str = '', market: st
                 f'⚠️ CRITICAL: 你是统稿 Agent，必须读取以下前序 step 的完整输出文件作为输入：\n'
                 + '\n'.join(prior_paths) + '\n\n'
                 f'brief 中嵌入的 "Prior Step Output" 是截断版（仅前5000字符），你必须读取上述完整文件才能做出高质量统稿。\n\n'
+                f'⚠️ 统稿保留硬约束（最高优先级，违反任一条即视为统稿失败）：\n\n'
+                f'【规则1】核心对比表必须原文保留：行业技术路线全景对比表、产品级竞品参数对比表、现有方案深度对比大表、核心组件拆解表——不得删除或压缩为文字叙述。如果某个step有5张竞品对比表，统稿必须保留5张，不能合并成1张。\n\n'
+                f'【规则2】市占率/份额/渗透率数据必须完整保留：TAM/SAM/SOM分层推算及每层具体数字、各细分市场渗透率及驱动力、竞品市占率（具体数字和百分比，不能只写"垄断竞争"等模糊表述）、标的公司渗透率——这些是判断市场空间的核心依据。\n\n'
+                f'【规则3】去重只做跨step，不做step内压缩：跨step重复内容可合并，但单个step内部的表格、数据、分析段落不得删除或压缩。\n\n'
+                f'【规则4】来源合并不得丢来源：所有step的来源索引表/脚注列表都必须合并到统稿末尾"来源附录"章节；不能因格式不同（[^N]脚注/编号表格/URL直接引用/评级格式）就丢弃；非[^N]格式的来源必须转换为[^N]脚注格式纳入统一编号；目标：统稿来源总数 ≥ 各step来源去重后总数。统稿完成后必须自检：数末尾来源附录条目数，对比各step来源总数，显著减少则说明有来源丢失，必须补回。\n\n'
             )
 
         prompt_body += (
@@ -934,7 +951,7 @@ def finalize_pipeline(task_id: str, entity: str = '', market: str = 'us') -> dic
         _OFFICIAL = ['sec.gov','hkexnews.hk','cninfo.com.cn','szse.cn','sse.com.cn','ir.','investor.']
         _REPUTABLE = ['reuters.com','bloomberg.com','wsj.com','ft.com','economist.com','scmp.com','caixin.com','36kr.com','cls.cn','eastmoney.com','xueqiu.com']
         _REDFLAGS = ['待补','待填','TODO','无法验证','无法获取','需要进一步']
-        _STEP_ORDER = ['step1_data','step2_industry','step3_biz','step4_finance','step5_mgmt','step6_insight','step7_risk','step8_master']
+        _STEP_ORDER = ['step1_data','step2_industry','step3_biz','step4_finance','step5_mgmt','step6_insight','step6b_valuation','step7_risk','step8_master']
         scores, issues = {}, []
         for step in _STEP_ORDER:
             f = TASKS_DIR / f'{task_id}-{step}.md'

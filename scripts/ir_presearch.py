@@ -19,12 +19,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TASKS_DIR = ROOT / 'data' / 'tasks'
 
-# SSL env (auto-detect cert path)
-for _p in ['/opt/homebrew/etc/openssl@3/cert.pem', '/usr/local/etc/openssl@3/cert.pem']:
-    if os.path.exists(_p):
-        os.environ.setdefault('SSL_CERT_FILE', _p)
-        os.environ.setdefault('REQUESTS_CA_BUNDLE', _p)
-        break
+# SSL env
+os.environ.setdefault('SSL_CERT_FILE', '/opt/homebrew/etc/openssl@3/cert.pem')
+os.environ.setdefault('REQUESTS_CA_BUNDLE', '/opt/homebrew/etc/openssl@3/cert.pem')
 
 CURRENT_YEAR = datetime.now().year
 PREV_YEAR = CURRENT_YEAR - 1
@@ -112,6 +109,13 @@ STEP_QUERIES = {
         '{entity} market blind spot overlooked positive factor',
         '{entity} 被低估 催化剂 非共识 {year}',
         '{entity} short interest short selling ratio {year}',
+    ],
+    'step6b_valuation': [
+        '{entity} DCF valuation WACC discount rate terminal value',
+        '{entity} comparable company PE PB PS EV/EBITDA valuation',
+        '{entity} analyst consensus target price {year}',
+        '{entity} 估值 目标价 可比公司 敏感性分析',
+        '{entity} revenue growth forecast earnings projection {year}',
     ],
     'step7_risk': [
         '{entity} key risks bear case downside scenario {year}',
