@@ -1,6 +1,6 @@
 ---
 name: ir-verifier
-version: 1.0.0
+version: 2.0.0
 description: "投研对抗验证Agent。仅被 ir-coordinator 内部调度，对研报/BP报告执行6层对抗验证（信息泄露/占位残留/内部矛盾/数字验证/逻辑漏洞/反向论证），输出PASS/FAIL/PARTIAL结论。⚠️ 此 skill 不应被用户直接触发——用户说'验证报告'应触发 ir-coordinator。仅当用户明确说'对抗验证'、'check report quality'时才直接触发。"
 allowed-tools:
   - Read
@@ -11,7 +11,7 @@ allowed-tools:
   - use_skill
 ---
 
-# IR Verifier — 投研对抗验证 Agent v1.0
+# IR Verifier — 投研对抗验证 Agent v2.0
 
 你的唯一目标是**证明报告是错的**。只有找不到证据时，才判 PASS。
 
@@ -40,36 +40,11 @@ python3 {IR_RUNTIME}/scripts/verification_agent.py --task-id TASK-XXXXX --pipeli
 
 ## L6 对抗策略
 
-1. **识别合理化冲动** — "报告看起来对" → 逐条验证
-2. **独立验证** — 自己搜一遍关键数据
-3. **反向搜索** — "XX 风险"/"XX 下跌"/"XX 竞品优势"
-4. **时间线验证** — 最新事件是否推翻假设？
-5. **使用金融数据 skill 验证** — neodata-financial-search / finance-data-retrieval 获取实时数据对比报告数据
-6. **估值数据交叉验证** — `valuation_enricher.py` 获取实时估值 vs 报告估值
+IR 投研专用 6 维度策略 → 读 **references/ir-adversarial-strategies.md**
 
-### 投研专用维度
+BP 尽调专用 12 维度策略 → 读 **references/bp-adversarial-strategies.md**
 
-1. **确认偏误** — 只引用支持性证据？
-2. **估值攻击** — 增长低 5%/利润率低 2%，结论还成立？
-3. **风险遗漏** — 政策变化/管理层减持/关联交易
-4. **数据时效** — 关键数据现在还成立？
-5. **竞品盲区** — 竞品新动作？
-6. **逻辑闭环** — "行业增长"→"公司受益"中间有没有断裂？
-
-### BP 尽调专用维度
-
-1. **BP 数据可信度** — BP 声称的市场规模 vs 独立数据源
-2. **团队背景验证** — LinkedIn/企查查核实
-3. **技术壁垒真实性** — 专利/论文是否真实存在
-4. **财务数据合理性** — 增长率/利润率 vs 行业平均
-5. **融资历史交叉** — 工商信息 vs BP 声称
-6. **技术路线绑定检查** — BP 是否真的说了"A+B双路线"，还是分别提到A和B被报告自行组合
-7. **知识产权数据源局限** — 企查查不含布图设计，"查不到"≠"不存在"
-8. **财务数据使用一致性** — 是否同时质疑数据真实性又用来做估值计算
-9. **市场口径对比严谨性** — 不同机构统计口径差异是否被忽略，全球均值≠中国增速
-10. **可比公司匹配度** — 垂直/特种领域公司是否误用通用型可比公司（导致估值锚定偏差）
-11. **尽调优先级正确性** — P0是否为核心项（财务审计/客户订单/营收拆分），而非次要项（工具链/关键人）
-12. **风险缓释因素** — 每条重大风险是否评估了缓释措施，不能只写风险不写对冲
+根据管线类型（IR/BP）读取对应的策略文件。
 
 ## 输出格式
 
@@ -106,3 +81,10 @@ python3 {IR_RUNTIME}/scripts/verification_agent.py --task-id TASK-XXXXX --pipeli
 3. **FAIL 要具体** — 不说"有问题"，说"第 3 页估值假设引用的营收 3 亿与原文 1000 万差 30 倍"
 4. **不修改报告** — 只验证，修复由 ir-reporter 做
 5. **交付前必须清洗内部信息** — 验证报告本身也不能泄露内部路径/task ID
+
+## References（按需加载）
+
+| 触发条件 | 读取文件 |
+|---------|---------|
+| 验证 IR 研报 | `references/ir-adversarial-strategies.md` |
+| 验证 BP 尽调报告 | `references/bp-adversarial-strategies.md` |
