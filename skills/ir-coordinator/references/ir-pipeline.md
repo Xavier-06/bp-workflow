@@ -1,0 +1,159 @@
+# IR 管线详细流程
+
+## 管线阶段
+
+```
+phase0_preflight          — 环境检测 + 任务注册
+phase05_company_verify    — 公司验证 + 估值数据 (yfinance)
+phase1_presearch          — 8 step 预搜索 (SearchGateway/SearXNG)
+phase15_extract           — URL 内容提取 (Scrapling 三层递进)
+phase4_dispatch_prepare   — launch_next_wave() 发射第一个 wave，返回 needs_dispatch
+│   └── kernel 暂停，coordinator 循环 launch_next_wave() 推进所有 wave
+phase4_dispatch_collect   — 检查子代理输出 + 质量门禁
+phase5_delivery           — 对抗验证 + DOCX + 交付（或由 finalize_pipeline() 代替）
+```
+
+## 核心 API
+
+```python
+from ir_subagent_launcher_wb import (
+    launch_next_wave,      # 发射当前 wave，返回 team 派发指令
+    get_pipeline_status,   # 管线状态快照
+    get_current_wave_index,# 当前该发哪个 wave
+    finalize_pipeline,     # Phase 5 全自动（质检→DOCX→桌面→微信）
+    check_step_quality,    # 单 step 质检
+)
+```
+
+## 提交任务
+
+```bash
+cd {IR_RUNTIME}
+
+# IR 任务
+python3 -m runtime.orchestrator.pipeline_orchestrator submit \
+  --entity "标的名称" --market cn --query "研究重点"
+```
+
+返回 `job_id`（如 `TASK-XXXXXXXX-XXX`）。
+
+## Wave 编排
+
+```
+Wave 1: step1_data                                    (串行)
+Wave 2: step2_industry, step3_biz, step4_finance, step5_mgmt  (并行)
+Wave 3: step6_insight, step7_risk                      (并行)
+Wave 4: step8_master                                   (串行)
+Phase 5: finalize_pipeline() → 质检 → DOCX → 桌面 → 微信通知
+```
+
+### IR Step 依赖和波次
+
+| 波次 | Steps | 依赖 | 预估时间 |
+|------|-------|------|---------|
+| Wave 1 | step1_data | 无 | 15-25 分钟 |
+| Wave 2 | step2_industry, step3_biz, step4_finance, step5_mgmt | step1 | 每个 15-25 分钟 |
+| Wave 3 | step6_insight, step7_risk | step1+2+3 / step1+3+4 | 每个 15-25 分钟 |
+| Wave 4 | step8_master | step1-7 | 20-30 分钟 |
+
+## 执行伪代码（Coordinator 循环）
+
+```python
+# Phase 0-1.5: 管线自动跑 preflight → company_verify → presearch → extract
+python3 -m runtime.orchestrator.pipeline_orchestrator execute --job-id TASK-XXXXX
+# → 管线在 phase4_dispatch_prepare 暂停，返回 needs_dispatch=True + task_tool_instructions
+
+# Phase 4: Coordinator 用 team 异步模式发射 wave
+MAX_RETRIES = 2
+
+# 1. 创建 team
+team_create(team_name=f"ir-{task_id}")
+
+while True:
+    result = launch_next_wave(task_id, entity, query, market)
+    
+    if result['all_done']:
+        break
+    
+    # 为本 wave 每个 step 派发 team member（同一 wave 内并行）
+    for instruction in result['task_tool_instructions']:
+        step = instruction['step']
+        output_path = instruction['output_path']
+        
+        task(
+            subagent_name='code-explorer',
+            name=f'{step}',
+            team_name=f'ir-{task_id}',
+            mode='bypassPermissions',
+            description=step,
+            prompt=instruction['prompt'],
+        )
+    
+    # 轮询等待所有 team member 完成（检查输出文件）
+    for instruction in result['task_tool_instructions']:
+        output_path = instruction['output_path']
+        # execute_command: sleep 30 && test -s {output_path}
+        # 最多等 15 分钟，超时则重派
+
+# 清理 team
+for member_name in [active_member_names]:
+    send_message(type="shutdown_request", recipient=member_name, content="Work complete")
+# 等待 10 秒
+team_delete()
+
+# Phase 5: 全自动交付
+result = finalize_pipeline(task_id, entity, market)
+```
+
+## IR 子代理派发规则
+
+- **必须用 team 异步模式**：`team_create()` → `task(name=..., team_name=...)` → 轮询输出文件
+- **禁止用同步 `task()`**（无 name 参数）——会返回 code=10003 挂掉
+- `subagent_name` 固定为 `code-explorer`
+- `mode="bypassPermissions"` 确保子代理可写文件
+- `launch_next_wave()` 返回的 `task_tool_instructions` 包含完整的 prompt（含 brief_path + output_path）
+- 派发后通过 `execute_command` 轮询输出文件是否存在且 >100 字节
+- 输出文件超时未出现 → 重派（最多重试 2 次）
+- 重试仍然失败 → 记录失败原因，跳过该 step，继续下一 wave
+- step8_master 失败 → 用已有 step 输出拼接兜底
+
+## IR 交付规则
+
+- `finalize_pipeline()` **必须执行**（全自动：质检 → DOCX → 桌面 → 微信通知）
+- DOCX 失败 → 用 markdown 兜底
+- **研报必须复制到桌面**
+- **微信通知必须尝试发送**（通过 `longshao_notify.py` → wechat_bot SDK）
+  - ⚠️ `longshao_notify.py` 已升级为三步发送（文本通知→文件→确认文本）
+  - 如果 `--file` 调用返回 `ok: false`，必须重试一次
+  - 即使返回 `ok: true`，也要提醒用户检查微信是否收到（SDK send_file 静默失败不抛异常）
+- 交付完成后，在聊天窗口告知用户文件完整路径
+- **禁止**使用 `deliver_attachments`（客户端不显示附件）
+
+## Wave 4 step8_master 统稿硬约束
+
+- 读取 step1-7 全部输出，汇总为券商风格完整研报（投资摘要→行业→商业模式→财务估值→管理层→差异化洞察→风险催化剂→来源附录）
+- **脚注硬规则**：正文每个关键数据点都要有脚注标注，末尾"来源附录"展开完整引用
+- **跨章节数据一致性**：同一指标在不同章节出现时数字必须一致，以有明确来源的为准
+- **算术验算**：PE×EPS≈股价、市值=股价×总股本等关键算术必须自验
+- **⚠️ 统稿保留硬约束**（解决统稿过度压缩问题）：
+  - **核心对比表必须原文保留**：行业竞争格局对比表、产品参数对比表、估值对比表——不得删除或压缩为文字叙述
+  - **市占率/份额/渗透率数据必须完整保留**：TAM/SAM/SOM分层推算及每层具体数字、各细分市场渗透率、竞品市占率（具体数字和百分比，不能只写"垄断竞争"等模糊表述）、标的公司渗透率——这些是判断市场空间的核心依据
+  - **去重只做跨step，不做step内压缩**：跨step重复内容可合并，但单个step内部的表格、数据、分析段落不得删除或压缩
+  - **来源合并不得丢来源**：所有step的来源索引表/脚注列表都必须合并到统稿末尾"来源附录"章节，不能因格式不同（[^N]脚注/编号表格/URL直接引用/评级格式）就丢弃；非[^N]格式的来源必须转换为[^N]脚注格式纳入统一编号；目标：统稿来源总数 ≥ 各step来源去重后总数
+- 总字数不低于原始各 step 内容总量的 70%（禁止过度压缩）
+
+## 子代理自主闭环规则
+
+子代理在执行过程中必须自主闭环，不要回主控等待指示：
+1. **检测到数据缺口** → 自己补搜（neodata/finance-data/web_search），继续推进
+2. **来源不足** → 自己搜更多来源，补充到输出中
+3. **数据矛盾** → 自己判断哪个更可靠，标注矛盾来源
+4. **前序 step 输出有 gap** → 自己补充搜索填补
+5. **唯一需要回主控的情况**：step 输出文件写完，表示完成
+
+## 错误恢复（断点续跑）
+
+如果管线中途因 context window 等原因断裂：
+1. `get_pipeline_status(task_id)` 看哪些 step 已完成
+2. `launch_next_wave()` 自动从断点继续（已完成的 step 自动跳过）
+3. 不需要从头开始
