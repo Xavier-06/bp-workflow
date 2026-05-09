@@ -122,7 +122,8 @@
    - `mcp__qcc-operation`：竞品的招投标、资质（判断市场地位）
 2. `web_search` — 通用搜索（DDG + SearXNG 多路合并）
 3. `web_fetch` — 对搜索结果做正文深度抓取
-4. `neodata-financial-search` — 上市竞对的行情、财报、估值
+4. `yfinance`（Python）— 上市竞对的行情、财报、估值（**可比公司市值/PE/PS 的首选数据源**）
+5. `yfinance`（Python）— 备用：`python3 -c "import yfinance as yf; t=yf.Ticker('688439.SS'); info=t.info; print(info.get('marketCap'), info.get('trailingPE'), info.get('priceToSalesTrailing12Months'))"`。A股代码格式：`{代码}.SS`（沪）/ `{代码}.SZ`（深），港股：`{代码}.HK`。
 
 ## 调查范围
 
@@ -174,6 +175,12 @@
 - **上市公司锚**：引用具体公司的具体倍数+增速+市值（如"某同赛道龙头 2026E PS Nx，营收增速 X%"）
 - **行业中枢**：引用行业报告或券商研报的估值中枢
 - **一级市场交易**：引用同阶段同赛道融资交易案例
+
+**⚠️ 可比公司数据必须用实时数据源获取，禁止估算**：
+- 使用 `web_search` 搜索每家可比公司实时数据：`{公司名} {股票代码} 最新市值 市盈率 市销率 site:eastmoney.com OR site:xueqiu.com`
+- 备用方法：在 Bash 中运行 `python3 -c "import yfinance as yf; t=yf.Ticker('{股票代码}'); info=t.info; print(info.get('marketCap'), info.get('trailingPE'), info.get('priceToSalesTrailing12Months'))"`。A股代码格式：`{6位代码}.SS`（沪市）/ `{6位代码}.SZ`（深市），港股：`{5位代码}.HK`。
+- 报告中注明"数据截至 YYYY-MM-DD"。
+- **绝对禁止**用"约""估算""~"标注可比公司市值——必须是搜索或工具返回的真实数值。
 
 **禁止行为**：
 - 禁止仅因"稀缺性"就给超高倍数，除非有同赛道一级市场交易佐证

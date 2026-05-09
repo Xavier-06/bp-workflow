@@ -122,7 +122,7 @@
    - ⚠️ 注意数据覆盖范围：部分数据库不收录集成电路布图设计、软著等特定IP类型，查不到≠不存在
 2. `web_search` — 通用搜索（DDG + SearXNG 多路合并）
 3. `web_fetch` — 对搜索结果做正文深度抓取
-4. `neodata-financial-search` — 金融数据补充
+4. `yfinance`（Python）— 上市公司财务数据（市值、PE、PS）
 
 ## ⚠️ 学术论文与第三方验证搜索策略
 

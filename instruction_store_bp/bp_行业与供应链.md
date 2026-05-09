@@ -74,7 +74,7 @@
    - `mcp__qcc-company`：股东、对外投资、分支机构（产业链位置线索）
 2. `web_search` — 通用搜索（DDG + SearXNG 多路合并）
 3. `web_fetch` — 对搜索结果做正文深度抓取
-4. `neodata-financial-search` — 金融数据补充（行业宏观、上市竞对财报）
+4. `yfinance`（Python）— 上市竞对财务数据（市值、PE、PS、财报）
 
 ## ⚠️ 行业报告与数据源搜索策略
 
