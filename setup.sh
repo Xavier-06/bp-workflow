@@ -105,9 +105,14 @@ fi
 # ── 7. 创建必要目录 ──
 mkdir -p "$TARGET_DIR/jobs"
 mkdir -p "$TARGET_DIR/logs"
-mkdir -p "$TARGET_DIR/data"
+mkdir -p "$TARGET_DIR/data/tasks"
+mkdir -p "$TARGET_DIR/data/search_cache"
 mkdir -p "$TARGET_DIR/sessions"
 mkdir -p "$TARGET_DIR/outputs"
+mkdir -p "$TARGET_DIR/reports"
+mkdir -p "$TARGET_DIR/.credentials"
+mkdir -p "$TARGET_DIR/memory_agent/logs"
+mkdir -p "$TARGET_DIR/memory_agent/memory_db"
 
 # ── 8. 验证安装 ──
 info "验证安装..."

@@ -30,7 +30,7 @@ PID_FILE = ROOT / 'tools' / 'searxng' / 'searxng-local.pid'
 LOG_FILE = ROOT / 'tools' / 'searxng' / 'searxng-local.log'
 DEFAULT_HOST = '127.0.0.1'
 DEFAULT_PORT = 8888
-SEARXNG_SECRET = os.environ.get('SEARXNG_SECRET', 'workbuddy-ir-secret-2026')
+SEARXNG_SECRET = os.environ.get('SEARXNG_SECRET', '')
 STARTUP_TIMEOUT = 30  # 秒
 
 

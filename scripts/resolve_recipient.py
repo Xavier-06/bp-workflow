@@ -13,6 +13,11 @@ def main():
     ap.add_argument('--json', action='store_true')
     args = ap.parse_args()
 
+    if not CONFIG.exists():
+        print(f'❌ 配置文件不存在: {CONFIG}', file=sys.stderr)
+        print('请创建 recipients.json 或通过 .env 配置通知目标', file=sys.stderr)
+        raise SystemExit(1)
+
     data = json.loads(CONFIG.read_text(encoding='utf-8'))
     rec = data.get('recipients', {}).get(args.alias)
     if not rec:

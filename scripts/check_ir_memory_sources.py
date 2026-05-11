@@ -20,7 +20,7 @@ def check_memory_sources() -> dict:
     sources = {
         'primary': {
             'memory_agent': memory_agent_exists,
-            'instruction_store': (ROOT / 'instruction_store' / 'index.json').exists(),
+            'instruction_store': (ROOT / 'instruction_store_ir' / 'index.json').exists(),
         },
         'daily_logs': {
             'today': (ROOT / 'memory' / f'{datetime.now().strftime("%Y-%m-%d")}.md').exists(),

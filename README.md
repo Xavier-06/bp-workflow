@@ -53,8 +53,9 @@ ir-bp-workflow/
 │   ├── profiles/                # 管线 Profile
 │   │   ├── bp_profile.py        # BP 管线定义（含竞争与结论强制派发+附件收集）
 │   │   └── ...
-│   ├── delivery/                # 交付子系统
-│   └── verification/            # 验证子系统
+│   ├── entrypoints/             # 入口点
+│   ├── intake/                  # 输入处理
+│   └── orchestrator/            # 管线编排器
 ├── scripts/                     # 功能脚本（160+）
 │   ├── ir_subagent_launcher_wb.py   # IR 子代理发射器（含 ANTI-DEFECT RULES）
 │   ├── bp_subagent_launcher_wb.py   # BP 子代理发射器（含 ANTI-DEFECT RULES）

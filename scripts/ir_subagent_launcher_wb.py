@@ -31,7 +31,7 @@ from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 TASKS_DIR = ROOT / 'data' / 'tasks'
-INSTRUCTION_STORE = ROOT / 'instruction_store'
+INSTRUCTION_STORE = ROOT / 'instruction_store_ir'
 
 # 质量线
 STEP_QUALITY_THRESHOLD = 3

@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / 'config' / 'search'
 CACHE_DIR = ROOT / 'data' / 'search_cache'
 ENV_FILE = ROOT / '.credentials' / 'investment-research.env'
-DEFAULT_SEARXNG_LOCAL_URL = 'http://127.0.0.1:8888'
+DEFAULT_SEARXNG_LOCAL_URL = os.environ.get('SEARXNG_URL', '')
 DEFAULT_SEARXNG_FALLBACK_URLS = [
     'https://searx.be',
     'https://search.okonetwork.de',
@@ -66,4 +66,5 @@ def searxng_urls() -> list[str]:
     local = searxng_local_url()
     # CN(18081) 已弃用：只返回 EN + 公共实例 fallback
     # 中文搜索走 DDG CLI（search_router.py）
-    return [local, *searxng_fallback_urls()]
+    urls = [u for u in [local, *searxng_fallback_urls()] if u]
+    return urls

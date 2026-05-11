@@ -184,25 +184,27 @@ def check_environment():
     }
 
     # 6b. SearXNG (本地自建，自动启动)
-    searxng_url = os.environ.get('SEARXNG_URL', 'http://localhost:8888')
-    try:
-        # 自动启动 SearXNG
-        from searxng_manager import auto_start, healthcheck as searxng_hc
-        auto_start()
-        searxng_ok = searxng_hc()
-    except Exception:
-        # fallback: 直接探测端口
+    searxng_url = os.environ.get('SEARXNG_URL', '')
+    searxng_ok = False
+    if searxng_url:
         try:
-            import httpx
-            r = httpx.get(f'{searxng_url}/healthz', timeout=2)
-            searxng_ok = r.status_code == 200
+            # 自动启动 SearXNG
+            from searxng_manager import auto_start, healthcheck as searxng_hc
+            auto_start()
+            searxng_ok = searxng_hc()
         except Exception:
-            searxng_ok = False
+            # fallback: 直接探测端口
+            try:
+                import httpx
+                r = httpx.get(f'{searxng_url}/healthz', timeout=2)
+                searxng_ok = r.status_code == 200
+            except Exception:
+                searxng_ok = False
     results['checks']['searxng'] = {
         'ok': True,  # SearXNG 可选，不影响整体
         'available': searxng_ok,
         'url': searxng_url,
-        'msg': f'SearXNG 可用 ({searxng_url})' if searxng_ok else f'⚠️ SearXNG 自动启动失败 (可选，降级到 DDG/Yahoo)'
+        'msg': f'SearXNG 可用 ({searxng_url})' if searxng_ok else (f'⚠️ SearXNG 未配置 SEARXNG_URL，降级到 DDG/Yahoo' if not searxng_url else f'⚠️ SearXNG 自动启动失败 (可选，降级到 DDG/Yahoo)')
     }
 
     # 6c. DDG (免密钥，兜底搜索)
