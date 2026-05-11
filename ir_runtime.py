@@ -42,9 +42,17 @@ CREDENTIALS_FILE = ROOT / '.credentials' / 'investment-research.env'
 for d in [TASKS_DIR, OUTPUTS_DIR, ROOT / 'logs', ROOT / 'sessions']:
     d.mkdir(parents=True, exist_ok=True)
 
-# SSL 证书 (macOS Homebrew)
-os.environ.setdefault('SSL_CERT_FILE', '/opt/homebrew/etc/openssl@3/cert.pem')
-os.environ.setdefault('REQUESTS_CA_BUNDLE', '/opt/homebrew/etc/openssl@3/cert.pem')
+# SSL 证书（自动探测，用户可通过 SSL_CERT_PATH 环境变量覆盖）
+_cert = os.getenv('SSL_CERT_PATH', '')
+if not _cert:
+    for _p in ['/opt/homebrew/etc/openssl@3/cert.pem', '/usr/local/etc/openssl@3/cert.pem',
+               '/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt']:
+        if os.path.exists(_p):
+            _cert = _p
+            break
+if _cert:
+    os.environ.setdefault('SSL_CERT_FILE', _cert)
+    os.environ.setdefault('REQUESTS_CA_BUNDLE', _cert)
 
 # scripts/ 加入 sys.path
 if str(SCRIPTS_DIR) not in sys.path:

@@ -15,7 +15,7 @@ if os.path.exists(CERT_PATH):
     os.environ.setdefault('SSL_CERT_FILE', CERT_PATH)
     os.environ.setdefault('REQUESTS_CA_BUNDLE', CERT_PATH)
 
-LOCAL_SEARXNG = os.getenv('SEARXNG_LOCAL_URL', 'http://127.0.0.1:8888').rstrip('/')
+LOCAL_SEARXNG = os.getenv('SEARXNG_LOCAL_URL', os.getenv('SEARXNG_URL', '')).rstrip('/')
 _NO_PROXY = {"http": None, "https": None}  # 本地 SearXNG 不走代理
 FALLBACK_URLS = (
     os.environ.get('SEARXNG_URLS') or os.environ.get('SEARXNG_URL') or

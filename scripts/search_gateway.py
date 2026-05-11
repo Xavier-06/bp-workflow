@@ -5,8 +5,8 @@
 搜索栈：
   Layer 0: NeoData 金融数据（A/HK股行情、财报、板块、研报，金融查询优先）
   Layer 1: DDG Python API 直连（清代理，中英文主力）
-  Layer 2: SearXNG 8888（Baidu + Bing 补充）
-  Layer 3: Google 直接抓取（scrapling 走 7897 代理，自己解析）
+  Layer 2: SearXNG 本地实例（Baidu + Bing 补充，需配置 SEARXNG_URL）
+  Layer 3: Google 直接抓取（需配置 PROXY_URL，走代理自己解析）
   Layer 4: scrapling 深度抓取（对搜索结果做正文提取）
   Layer 5: yfinance 估值数据（IR 管线专用）
 
@@ -54,15 +54,24 @@ except Exception:
     pass
 
 WORKSPACE = Path(__file__).resolve().parent.parent
-CERT_PATH = "/opt/homebrew/etc/openssl@3/cert.pem"
-if os.path.exists(CERT_PATH):
+
+# ── 配置（全部支持环境变量覆盖）──────────────────────────
+CERT_PATH = os.getenv("SSL_CERT_PATH", "")
+if not CERT_PATH:
+    # macOS Homebrew OpenSSL 常见路径，自动探测
+    _candidates = ["/opt/homebrew/etc/openssl@3/cert.pem", "/usr/local/etc/openssl@3/cert.pem"]
+    for _p in _candidates:
+        if os.path.exists(_p):
+            CERT_PATH = _p
+            break
+if CERT_PATH:
     os.environ.setdefault("SSL_CERT_FILE", CERT_PATH)
     os.environ.setdefault("REQUESTS_CA_BUNDLE", CERT_PATH)
     os.environ.setdefault("CURL_CA_BUNDLE", CERT_PATH)
 
-SEARXNG_URL = "http://127.0.0.1:8888"
-PROXY_URL = "http://127.0.0.1:7897"
-DDGS_BIN = os.getenv("DDGS_BIN", "/opt/homebrew/bin/ddgs")
+SEARXNG_URL = os.getenv("SEARXNG_URL", "")
+PROXY_URL = os.getenv("PROXY_URL", "")
+DDGS_BIN = os.getenv("DDGS_BIN", "ddgs")
 
 NEODATA_ENDPOINT = os.getenv("NEODATA_ENDPOINT", "https://copilot.tencent.com/agenttool/v1/neodata")
 NEODATA_TOKEN_FILE = Path.home() / ".workbuddy" / ".neodata_token"
@@ -416,6 +425,8 @@ def _parse_ddgs_text(stdout: str, max_results: int, query: str = "") -> list:
 # ── Layer 2: SearXNG ──────────────────────────────────
 
 def _searxng_search(query: str, max_results: int = 10, engines: str = "", timeout: int = 25) -> list:
+    if not SEARXNG_URL:
+        return []
     params: dict[str, Any] = {
         "q": query,
         "format": "json",
@@ -454,11 +465,14 @@ def _searxng_search(query: str, max_results: int = 10, engines: str = "", timeou
 # ── Layer 3: Google 直接抓取 ──────────────────────────
 
 def google_search(query: str, max_results: int = 10) -> list:
-    """走 7897 代理抓 Google 搜索页。
+    """走代理抓 Google 搜索页。
     
     Google 现在返回 JS 渲染页面，Fetcher 无法解析。
     改用 requests + 代理 + 特殊 User-Agent 请求非 JS 版本。
+    需要 PROXY_URL 环境变量，未配置则跳过。
     """
+    if not PROXY_URL:
+        return []
     try:
         lang = "zh-CN" if _has_chinese(query) else "en"
         url = f"https://www.google.com/search?q={quote_plus(query)}&hl={lang}&num={max_results + 5}"
@@ -511,7 +525,7 @@ def fetch_page(url: str, timeout: int = 20, use_proxy: bool = False) -> Optional
     try:
         from scrapling.fetchers import Fetcher
         kwargs: dict[str, Any] = {"stealthy_headers": True, "timeout": timeout}
-        if use_proxy:
+        if use_proxy and PROXY_URL:
             kwargs["proxy"] = PROXY_URL
         page = Fetcher.get(url, **kwargs)
         if page.status == 200:
@@ -521,7 +535,7 @@ def fetch_page(url: str, timeout: int = 20, use_proxy: bool = False) -> Optional
         pass
     # requests fallback
     try:
-        proxies = {"http": PROXY_URL, "https": PROXY_URL} if use_proxy else None
+        proxies = {"http": PROXY_URL, "https": PROXY_URL} if use_proxy and PROXY_URL else None
         r = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"}, proxies=proxies)
         r.raise_for_status()
         from html.parser import HTMLParser
@@ -638,6 +652,8 @@ def search_many(queries: List[str], max_results: int = 8, prefer: str = "auto") 
 def verify_engines() -> dict:
     searxng_ok = False
     try:
+        if not SEARXNG_URL:
+            raise ConnectionError("SEARXNG_URL not configured")
         r = _LOCAL.get(f"{SEARXNG_URL}/healthz", timeout=5)
         searxng_ok = r.status_code == 200
     except Exception:
@@ -674,19 +690,22 @@ def verify_engines() -> dict:
     neodata_ok = _neodata_read_token() is not None
 
     proxy_ok = False
-    try:
-        r = requests.get("http://127.0.0.1:7897", timeout=3)
-        proxy_ok = True
-    except Exception:
+    if PROXY_URL:
         try:
-            import socket
-            s = socket.socket()
-            s.settimeout(2)
-            s.connect(("127.0.0.1", 7897))
-            s.close()
+            r = requests.get(PROXY_URL, timeout=3)
             proxy_ok = True
         except Exception:
-            pass
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(PROXY_URL)
+                import socket
+                s = socket.socket()
+                s.settimeout(2)
+                s.connect((parsed.hostname, parsed.port or 80))
+                s.close()
+                proxy_ok = True
+            except Exception:
+                pass
 
     return {
         "neodata": neodata_ok,
