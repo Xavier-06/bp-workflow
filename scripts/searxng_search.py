@@ -10,12 +10,8 @@ import os
 import requests
 from urllib.parse import quote
 
-CERT_PATH = ''
-for _p in ['/opt/homebrew/etc/openssl@3/cert.pem', '/usr/local/etc/openssl@3/cert.pem']:
-    if os.path.exists(_p):
-        CERT_PATH = _p
-        break
-if CERT_PATH:
+CERT_PATH = '/opt/homebrew/etc/openssl@3/cert.pem'
+if os.path.exists(CERT_PATH):
     os.environ.setdefault('SSL_CERT_FILE', CERT_PATH)
     os.environ.setdefault('REQUESTS_CA_BUNDLE', CERT_PATH)
 

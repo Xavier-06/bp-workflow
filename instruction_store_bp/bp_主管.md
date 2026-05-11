@@ -14,7 +14,7 @@ BP 尽调主管 / Orchestrator
 - 读取 `bp_step0_profile.json`，整理公司名 / 创始人 / 产品 / 竞品 / 技术关键词
 - 派发 4 个 BP 子代理（团队与合规 / 技术与产品 / 行业与供应链 / 竞争与结论）
 - 监控子代理输出文件是否生成且内容足够
-- 必要时触发子代理补搜（统一走 `scripts/search_gateway.py`）
+- 必要时触发子代理补搜（统一走 `scripts/search_gateway.py`，金融查询自动走 NeoData Layer 0）
 - 最终聚合各维度产出，调用 `build_bp_dd_report_docx.py` 生成交付
 
 ## 执行流程

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -69,15 +70,28 @@ def _run_document_intake(runtime_root: Path, job_ctx: JobContext) -> dict[str, A
 # ── Phase 0.5 / 1: 主体核验 + 预搜索 ────────────
 
 def _run_company_verify(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
-    from scripts.bp_company_verify import run_company_verify
-
-    return run_company_verify(job_ctx)
+    if os.environ.get("IRBP_BG_CHILD") == "1":
+        # 当前是后台子进程，直接执行
+        from scripts.bp_company_verify import run_company_verify
+        return run_company_verify(job_ctx)
+    from scripts.heavy_phase_bg import check_cached_result, launch_heavy_phase
+    cached = check_cached_result(runtime_root, job_ctx.job_id, "phase05_company_verify")
+    if cached is not None:
+        print(f"  📦 [bp] 使用缓存的 company_verify 结果", flush=True)
+        return cached
+    return launch_heavy_phase(runtime_root, job_ctx, "phase05_company_verify", pipeline="bp")
 
 
 def _run_presearch(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
-    from scripts.bp_presearch import run_presearch
-
-    return run_presearch(job_ctx)
+    if os.environ.get("IRBP_BG_CHILD") == "1":
+        from scripts.bp_presearch import run_presearch
+        return run_presearch(job_ctx)
+    from scripts.heavy_phase_bg import check_cached_result, launch_heavy_phase
+    cached = check_cached_result(runtime_root, job_ctx.job_id, "phase1_presearch")
+    if cached is not None:
+        print(f"  📦 [bp] 使用缓存的 presearch 结果", flush=True)
+        return cached
+    return launch_heavy_phase(runtime_root, job_ctx, "phase1_presearch", pipeline="bp")
 
 
 # ── Phase 2: BP 子代理发射（4 维度）────────────────
@@ -120,9 +134,23 @@ def _dispatch_role_specs(task_dir: Path, profile: dict) -> list[dict[str, Any]]:
             },
         },
         {
+            "role_name": "bp_估值",
+            "brief_key": "bp_估值",
+            "description": "维度6: 融资轮估值 + 可比公司估值 + 投资回报模型(MOIC/IRR) + 退出路径 + Excel估值模型",
+            "output_file": str(task_dir / "bp_phase2_valuation.md"),
+            "key_inputs": {
+                "company_name": profile.get("company_name", ""),
+                "financing_rounds": profile.get("financing_rounds", []),
+                "competitors": profile.get("competitors", {}),
+                "presearch_steps": [
+                    f for f in presearch_files if any(k in Path(f).name for k in ("valuation", "finance", "competition"))
+                ],
+            },
+        },
+        {
             "role_name": "bp_竞争与结论",
             "brief_key": "bp_竞争与结论",
-            "description": "维度6 + Deal Breakers: 竞争格局 + 投资结论",
+            "description": "维度7 + Deal Breakers: 竞争格局 + 投资结论",
             "output_file": str(task_dir / "bp_phase2_competition.md"),
             "key_inputs": {
                 "company_name": profile.get("company_name", ""),
@@ -183,12 +211,12 @@ def _quality_check(output_path: Path) -> dict[str, Any]:
     }
 
 
-# 前 3 个维度（不含竞争与结论）
-_CORE_ROLES = ["bp_团队与合规", "bp_技术与产品", "bp_行业与供应链"]
+# 前 4 个维度（不含竞争与结论，竞争在 Wave 2 派发）
+_CORE_ROLES = ["bp_团队与合规", "bp_技术与产品", "bp_行业与供应链", "bp_估值"]
 
 
 def _run_bp_dispatch_prepare(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
-    """Phase 2a: 写 manifest + brief，返回 needs_dispatch 让主 AI 自动派发前 3 个维度子代理。"""
+    """Phase 2a: 写 manifest + brief，返回 needs_dispatch 让主 AI 自动派发前 4 个维度子代理。"""
     from scripts.bp_subagent_launcher_wb import _spawn_one
 
     task_dir = _task_dir(runtime_root, job_ctx)
@@ -206,7 +234,7 @@ def _run_bp_dispatch_prepare(runtime_root: Path, job_ctx: JobContext) -> dict[st
     for sub in all_subs:
         sub["output_file"] = str(outputs_dir / Path(sub["output_file"]).name)
 
-    # 只派发前 3 个维度
+    # 只派发前 4 个维度（竞争在 Wave 2）
     core_subs = [s for s in all_subs if s["role_name"] in _CORE_ROLES]
 
     dispatch_data = {
@@ -252,20 +280,29 @@ def _run_bp_dispatch_prepare(runtime_root: Path, job_ctx: JobContext) -> dict[st
             "total_core": len(core_subs),
             "manifests": manifests,
         },
+        # ⚠️ 强制指令：主 AI 必须用 Agent 工具派发子代理，不能跳过直接轮询
+        "instruction": "MANDATORY: Read manifests, then use Agent tool to spawn sub-agents for each dimension. Do NOT skip to polling output files.",
     }
 
 
 def _run_bp_dispatch_collect(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
-    """Phase 2b: 检查前 3 个维度子代理输出是否已完成。"""
+    """Phase 2b: 检查前 4 个维度子代理输出是否已完成。"""
     task_dir = _task_dir(runtime_root, job_ctx)
     outputs_dir = _outputs_dir(runtime_root, job_ctx)
+
+    _ROLE_SLUGS = {
+        "bp_团队与合规": "team",
+        "bp_技术与产品": "tech",
+        "bp_行业与供应链": "industry",
+        "bp_估值": "valuation",
+    }
 
     step_quality: dict[str, dict] = {}
     completed = []
     missing = []
 
     for role in _CORE_ROLES:
-        slug = {"bp_团队与合规": "team", "bp_技术与产品": "tech", "bp_行业与供应链": "industry"}[role]
+        slug = _ROLE_SLUGS[role]
         output_path = outputs_dir / f"bp_phase2_{slug}.md"
         if output_path.exists() and output_path.stat().st_size > 100:
             completed.append(role)
@@ -275,7 +312,7 @@ def _run_bp_dispatch_collect(runtime_root: Path, job_ctx: JobContext) -> dict[st
             missing.append(role)
 
     if outputs_dir != task_dir:
-        for slug in ("team", "tech", "industry"):
+        for slug in _ROLE_SLUGS.values():
             src = outputs_dir / f"bp_phase2_{slug}.md"
             dst = task_dir / f"bp_phase2_{slug}.md"
             if src.exists() and not dst.exists():
@@ -296,7 +333,7 @@ def _run_bp_dispatch_collect(runtime_root: Path, job_ctx: JobContext) -> dict[st
 
 
 def _run_bp_competition_prepare(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
-    """Phase 2.5a: 竞争与结论子代理 — 在前 3 维度完成后派发，返回 needs_dispatch。"""
+    """Phase 2.5a: 竞争与结论子代理 — 在前 4 维度完成后派发，返回 needs_dispatch。"""
     from scripts.bp_subagent_launcher_wb import _spawn_one
 
     task_dir = _task_dir(runtime_root, job_ctx)
@@ -317,9 +354,9 @@ def _run_bp_competition_prepare(runtime_root: Path, job_ctx: JobContext) -> dict
 
     comp_sub["output_file"] = str(outputs_dir / Path(comp_sub["output_file"]).name)
 
-    # 把前 3 维度输出加入 key_inputs，让竞争与结论能参考
+    # 把前 4 维度输出加入 key_inputs，让竞争与结论能参考
     prior_outputs = {}
-    for slug in ("team", "tech", "industry"):
+    for slug in ("team", "tech", "industry", "valuation"):
         p = outputs_dir / f"bp_phase2_{slug}.md"
         if not p.exists():
             p = task_dir / f"bp_phase2_{slug}.md"
@@ -345,11 +382,18 @@ def _run_bp_competition_prepare(runtime_root: Path, job_ctx: JobContext) -> dict
             "outputs_dir": str(outputs_dir),
         },
         "result": result,
+        # ⚠️ 强制指令：主 AI 必须用 Agent 工具派发子代理，不能跳过直接轮询
+        "instruction": "MANDATORY: Read the manifest, then use Agent tool to spawn sub-agent for bp_竞争与结论. Do NOT skip to polling output file.",
     }
 
 
 def _run_bp_competition_collect(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
-    """Phase 2.5b: 检查竞争与结论输出。"""
+    """Phase 2.5b: 检查竞争与结论输出。
+
+    防御逻辑：如果输出文件不存在，检查 spawn receipt 是否已生成。
+    若 receipt 存在但子代理输出缺失，返回 needs_dispatch=True 强制主 AI 重新派发，
+    而非默默返回 missing（防止主 AI 跳过派发直接轮询的 bug）。
+    """
     task_dir = _task_dir(runtime_root, job_ctx)
     outputs_dir = _outputs_dir(runtime_root, job_ctx)
 
@@ -369,6 +413,37 @@ def _run_bp_competition_collect(runtime_root: Path, job_ctx: JobContext) -> dict
             "result": {"quality": quality},
         }
 
+    # 输出缺失 — 检查 spawn receipt 判断是否需要重新派发
+    spawn_receipt_path = task_dir / "bp_phase2_spawn_competition.json"
+    spawn_dispatched = False
+    if spawn_receipt_path.exists():
+        try:
+            receipt = json.loads(spawn_receipt_path.read_text(encoding="utf-8"))
+            spawn_dispatched = receipt.get("status") == "dispatched"
+        except Exception:
+            pass
+
+    if spawn_dispatched:
+        # receipt 存在但输出缺失 = 子代理可能没被真正 spawn（主 AI 跳过了 Agent 调用）
+        # 强制返回 needs_dispatch 让主 AI 重新派发
+        print("    ⚠️ bp_竞争与结论: spawn receipt 存在但输出缺失，强制重新派发", flush=True)
+        return {
+            "ok": True,
+            "needs_dispatch": True,
+            "mode": "bp_competition_collect_redispatch",
+            "phase": "phase25_competition_collect",
+            "job_id": job_ctx.job_id,
+            "dispatch_info": {
+                "manifests": [str(task_dir / "bp_phase2_manifest_competition.json")]
+                if (task_dir / "bp_phase2_manifest_competition.json").exists() else [],
+                "roles": ["bp_竞争与结论"],
+                "task_dir": str(task_dir),
+                "outputs_dir": str(outputs_dir),
+                "reason": "spawn receipt exists but output missing — sub-agent likely not actually dispatched",
+            },
+            "result": {"missing": "bp_phase2_competition.md", "redispatch": True},
+        }
+
     return {
         "ok": False,
         "mode": "bp_competition_collect",
@@ -381,23 +456,23 @@ def _run_bp_competition_collect(runtime_root: Path, job_ctx: JobContext) -> dict
 # ── Phase 3a: BP 统稿（投研逻辑重组 + 执行摘要）──────────
 
 def _run_bp_synthesis_prepare(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
-    """Phase 3a: 准备统稿子代理 — 读四个维度输出，按投研逻辑重组。"""
+    """Phase 3a: 准备统稿子代理 — 读五个维度输出，按投研逻辑重组。"""
     from scripts.bp_subagent_launcher_wb import _spawn_one
 
     task_dir = _task_dir(runtime_root, job_ctx)
     outputs_dir = _outputs_dir(runtime_root, job_ctx)
 
-    # 检查四个维度输出是否齐全
+    # 检查五个维度输出是否齐全
     dim_files = {}
-    for slug in ("team", "tech", "industry", "competition"):
+    for slug in ("team", "tech", "industry", "valuation", "competition"):
         for d in (outputs_dir, task_dir):
             p = d / f"bp_phase2_{slug}.md"
             if p.exists() and p.stat().st_size > 100:
                 dim_files[slug] = str(p)
                 break
 
-    if len(dim_files) < 4:
-        missing = [s for s in ("team", "tech", "industry", "competition") if s not in dim_files]
+    if len(dim_files) < 5:
+        missing = [s for s in ("team", "tech", "industry", "valuation", "competition") if s not in dim_files]
         return {"ok": False, "error": f"统稿缺少维度输出: {missing}"}
 
     synthesis_output = outputs_dir / "bp_synthesis.md"
@@ -407,7 +482,7 @@ def _run_bp_synthesis_prepare(runtime_root: Path, job_ctx: JobContext) -> dict[s
     sub = {
         "role_name": "bp_统稿",
         "brief_key": "bp_统稿",
-        "description": "将四个维度分析重组为投研逻辑结构的完整研究报告",
+        "description": "将五个维度分析重组为投研逻辑结构的完整研究报告",
         "output_file": str(synthesis_output),
         "key_inputs": {
             "dimension_outputs": dim_files,
@@ -418,12 +493,12 @@ def _run_bp_synthesis_prepare(runtime_root: Path, job_ctx: JobContext) -> dict[s
     # 写 manifest
     manifest_path = task_dir / "bp_phase3_manifest_synthesis.json"
     synthesis_system_prompt = (
-        'You are the lead analyst at a top-tier VC firm. Your job is to synthesize four dimension '
+        'You are the lead analyst at a top-tier VC firm. Your job is to synthesize five dimension '
         'reports into ONE coherent, professional investment research report — like what 悦享资本/红杉/高瓴 would produce. '
         'You have FULL read/write access to the workspace. '
         '\n\n'
         '## 你的任务\n'
-        '读取四个维度分析报告（团队、技术、行业、竞争），重新组织为一份完整的投研报告。\n'
+        '读取五个维度分析报告（团队、技术、行业、估值、竞争），重新组织为一份完整的投研报告。\n'
         '不是简单拼接——你要重新组织叙事逻辑，消除重复，补充交叉引用，写执行摘要。\n\n'
         '## ⚠️ 脚注规则（最高优先级！）\n'
         '这是用户最关心的问题之一，必须严格执行：\n'
@@ -451,27 +526,54 @@ def _run_bp_synthesis_prepare(runtime_root: Path, job_ctx: JobContext) -> dict[s
         '# 一、执行摘要\n'
         '一页纸讲清核心判断。分四段：技术层面、市场层面、竞争层面、拓展层面。\n'
         '每段 3-5 句话，必须有具体数据。这是整篇报告最重要的部分。\n\n'
-        '# 二、技术原理深度分析\n'
+        '# 一.五、公司主体与治理结构\n'
+        '**从团队维度报告中提取，必须包含以下内容：**\n'
+        '1. 公司基本信息（工商注册、法人、注册资本、成立时间）\n'
+        '2. **完整股权架构图**（所有股东、持股比例、实际控制人穿透、员工持股平台）\n'
+        '3. 核心团队深度分析（创始人/高管履历验证、对比表格）\n'
+        '4. 顾问/外部资源网络\n'
+        '5. 合规与风险信号（诉讼、处罚、资质缺失）\n'
+        '6. 团队匹配度判断\n\n'
+        '⚠️ **股权架构必须完整呈现**：不能只提两个大股东，所有股东（包括持股平台、产业基金、自然人）都要列出，持股比例和穿透关系要写清。\n'
+        '⚠️ **子公司/分支机构必须列出**：全集团员工汇总，不能只看总公司。\n\n'
+        '# 二、产品矩阵深度拆解（必须独立成章，不是技术分析的子节）\n'
+        '**这是整份报告的基础——读者必须先知道公司卖什么，再听技术逻辑。**\n\n'
+        '1. **产品线总览表**：每条产品线一行（产品线名称/核心品类/技术平台/量产状态/目标市场/营收占比估算）\n'
+        '2. **每条产品线逐一深度拆解**：\n'
+        '   - 具体型号与核心参数表（型号/关键参数/封装形式/认证状态）\n'
+        '   - 量产状态（已量产/投片验证/研发中）与产能情况\n'
+        '   - 目标应用场景与典型客户（✓已量产/🔄导入中/❓未验证）\n'
+        '   - 该产品线营收占比估算\n'
+        '   - 与同类竞品的核心参数对比\n'
+        '3. **产品线间协同关系**\n\n'
+        '# 三、技术原理深度分析\n'
         '从技术维度报告中提取，补充技术路线对比表、核心组件拆解表。\n'
         '技术原理必须给外行讲透，不能只有术语没有解释。专利只保留核心≤5项，不堆砌。\n\n'
-        '# 二.5、技术壁垒量化评估\n'
+        '# 三.5、技术壁垒量化评估\n'
         '独立成节。必须回答：①壁垒多高？②实用性多强？③能赚多少钱？\n'
         '每个判断配具体数字和[^N]脚注。\n\n'
-        '# 三、技术在目标场景中的独特价值与痛点解决\n'
+        '# 四、技术在目标场景中的独特价值与痛点解决\n'
         '按场景拆分，每个场景列具体痛点+数据+方案如何解决。\n\n'
-        '# 四、现有方案深度对比\n'
+        '# 五、现有方案深度对比\n'
         '大对比表（横向对比 8-10 个维度），含价格。\n\n'
-        '# 五、市场现有厂商情况\n'
+        '# 六、市场现有厂商情况\n'
         '全球+国内厂商对比表，竞争格局判断。\n\n'
-        '# 六、市场规模独立推算\n'
+        '# 七、市场规模独立推算\n'
         '必须有分场景推算表和汇总表。\n\n'
-        '# 七、民用场景与产品拓展\n'
+        '# 八、民用场景与产品拓展\n'
         '按时间线分梯队（1-3年/3-5年/5-10年+），每个场景评可行性星级。\n\n'
-        '# 八、BP核心逻辑独立验证\n'
+        '# 九、BP核心逻辑独立验证\n'
         '逐条验证 BP 声称，给评级（✓成立/⚠部分成立/✗不成立）。用表格呈现。\n\n'
-        '# 九、风险因素\n'
+        '# 十、估值分析\n'
+        '**从估值维度报告中提取，必须包含以下内容：**\n'
+        '1. 融资轮估值分析（各轮次金额/投后估值/隐含乘数/趋势）\n'
+        '2. 可比公司估值对标（上市公司PE/PS + 一级市场对标）\n'
+        '3. 投资回报模型（MOIC/IRR矩阵 + 退出路径分析）\n'
+        '4. 估值风险与敏感性分析\n'
+        '5. 合理估值区间与BP预期对比\n\n'
+        '# 十一、风险因素\n'
         '按类别分：技术/市场/竞争/政策/经营。每条风险要具体。\n\n'
-        '# 十、综合结论与建议\n'
+        '# 十二、综合结论与建议\n'
         '核心判断（2-3段）+ 投资建议（是否进入尽调+尽调重点清单）+ 估值建议。\n\n'
         '# 来源与参考\n'
         '将正文中所有 [^N] 脚注展开为完整来源信息，格式：[^N] 来源名称 — URL (日期)\n\n'
@@ -594,13 +696,24 @@ def _run_bp_synthesis_collect(runtime_root: Path, job_ctx: JobContext) -> dict[s
 
 
 def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
+    if os.environ.get("IRBP_BG_CHILD") == "1":
+        return _run_bp_delivery_inner(runtime_root, job_ctx)
+    from scripts.heavy_phase_bg import check_cached_result, launch_heavy_phase
+    cached = check_cached_result(runtime_root, job_ctx.job_id, "phase3_delivery")
+    if cached is not None:
+        print(f"  📦 [bp] 使用缓存的 delivery 结果", flush=True)
+        return cached
+    return launch_heavy_phase(runtime_root, job_ctx, "phase3_delivery", pipeline="bp")
+
+
+def _run_bp_delivery_inner(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
+    """delivery 实际执行逻辑（由 phase_runner.py 子进程调用时通过 bp_profile 路由）"""
     task_dir = _task_dir(runtime_root, job_ctx)
     workspace = getattr(job_ctx, "workspace", None)
     delivery_dir = workspace.delivery_dir if workspace is not None else task_dir
-    delivery_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir = _outputs_dir(runtime_root, job_ctx)
 
-    # 优先使用统稿输出（投研逻辑结构），fallback 到四个维度原文
+    # 优先使用统稿输出（投研逻辑结构），fallback 到五个维度原文
     synthesis_path = None
     for d in (outputs_dir, task_dir):
         p = d / "bp_synthesis.md"
@@ -615,11 +728,12 @@ def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
         # 统稿模式：整篇报告作为一个整体
         dimension_outputs["synthesis"] = synthesis_path.read_text(encoding="utf-8")
     else:
-        # Fallback：四个维度原文
+        # Fallback：五个维度原文
         file_map = {
             "team": task_dir / "bp_phase2_team.md",
             "tech": task_dir / "bp_phase2_tech.md",
             "industry": task_dir / "bp_phase2_industry.md",
+            "valuation": task_dir / "bp_phase2_valuation.md",
             "competition": task_dir / "bp_phase2_competition.md",
         }
         for slug, output_path in file_map.items():
@@ -683,6 +797,21 @@ def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
     }
     audit_path.write_text(json.dumps(audit_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    # 收集附件文件（xlsx 等）到 delivery 目录
+    attachment_paths: list[str] = []
+    for xlsx_name in outputs_dir.glob(f"{job_ctx.job_id}_*.xlsx"):
+        dst = delivery_dir / xlsx_name.name
+        if not dst.exists():
+            shutil.copy2(xlsx_name, dst)
+        attachment_paths.append(str(dst))
+    # 也检查 task_dir
+    for xlsx_name in task_dir.glob(f"{job_ctx.job_id}_*.xlsx"):
+        dst = delivery_dir / xlsx_name.name
+        if not dst.exists():
+            shutil.copy2(xlsx_name, dst)
+        if str(dst) not in attachment_paths:
+            attachment_paths.append(str(dst))
+
     try:
         from runtime.orchestrator.state_store import StateStore
 
@@ -690,6 +819,9 @@ def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
         if docx_path:
             ss.record_artifact(job_ctx.job_id, "bp_dd_report", Path(docx_path))
         ss.record_artifact(job_ctx.job_id, "bp_delivery_audit", audit_path)
+        # 注册 xlsx 附件
+        for i, att_path in enumerate(attachment_paths):
+            ss.record_artifact(job_ctx.job_id, f"bp_attachment_{i}", Path(att_path))
     except Exception:
         pass
 
@@ -732,7 +864,7 @@ def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
                     if attempt == 0:
                         print(f"  ⚠ 微信通知第{attempt+1}次异常: {e}，重试中...", flush=True)
 
-    dimensions_total = len(file_map) if 'file_map' in locals() else len(dimension_outputs)
+    dimensions_total = len(file_map) if 'file_map' in dir() else len(dimension_outputs)
     return {
         "ok": bool(docx_path),
         "mode": "bp_delivery_minimal",
@@ -744,6 +876,7 @@ def _run_bp_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
             "dimensions_total": dimensions_total,
             "docx_path": str(docx_path),
             "audit_path": str(audit_path),
+            "attachment_paths": attachment_paths,
             "delivery_errors": delivery_errors,
             "gate_verdict": "PASS" if docx_path else "PARTIAL",
         },

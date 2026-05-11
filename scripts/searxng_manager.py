@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
 SEARXNG_VENV = ROOT / 'tools' / 'searxng' / '.venv' / 'bin' / 'python'
-SEARXNG_SOURCE = Path(os.environ.get('SEARXNG_SOURCE_DIR', str(Path.home() / 'Downloads' / 'searxng-master')))
+SEARXNG_SOURCE = Path(os.environ.get('SEARXNG_SOURCE_DIR', '/Users/xavier/Downloads/searxng-master'))
 PID_FILE = ROOT / 'tools' / 'searxng' / 'searxng-local.pid'
 LOG_FILE = ROOT / 'tools' / 'searxng' / 'searxng-local.log'
 DEFAULT_HOST = '127.0.0.1'
@@ -124,14 +124,9 @@ def start(wait: bool = True) -> bool:
             pass
         PID_FILE.unlink(missing_ok=True)
 
-    # SSL 证书路径（auto-detect）
-    cert_pem = ''
-    cert_dir = ''
-    for _p in ['/opt/homebrew/etc/openssl@3/cert.pem', '/usr/local/etc/openssl@3/cert.pem']:
-        if Path(_p).exists():
-            cert_pem = _p
-            cert_dir = _p.replace('/cert.pem', '/certs')
-            break
+    # SSL 证书路径（macOS homebrew）
+    cert_pem = '/opt/homebrew/etc/openssl@3/cert.pem'
+    cert_dir = '/opt/homebrew/etc/openssl@3/certs'
 
     port = _port()
 
@@ -143,7 +138,7 @@ def start(wait: bool = True) -> bool:
         'SEARXNG_PORT': str(port),
         'PYTHONPATH': str(SEARXNG_SOURCE),
     }
-    if cert_pem:
+    if Path(cert_pem).exists():
         env.update({
             'SSL_CERT_FILE': cert_pem,
             'REQUESTS_CA_BUNDLE': cert_pem,

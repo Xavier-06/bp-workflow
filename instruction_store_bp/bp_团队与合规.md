@@ -65,7 +65,8 @@
    - `mcp__qcc-operation`：经营信息（招投标、资质许可、年报）
 2. `web_search` — 通用搜索（DDG + SearXNG 多路合并）
 3. `web_fetch` — 对搜索结果做正文深度抓取
-4. `yfinance`（Python）— 上市公司财务数据（市值、PE、PS）
+4. **NeoData 金融搜索** — A/HK 上市公司财务数据（市值、PE、PS，search_gateway 自动调用）
+5. `yfinance`（Python）— 美股上市公司财务数据；A/HK 股交叉验证
 
 ## 调查范围
 

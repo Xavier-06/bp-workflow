@@ -121,7 +121,7 @@ def _check_deps():
     try:
         from scripts.search_gateway import verify_engines
         engines = verify_engines()
-        searxng_ok = engines.get("searxng", False)
+        searxng_ok = engines.get("searxng_en", False)
         ddg_ok = engines.get("ddg", False)
         checks.append(("SearXNG", f"✅" if searxng_ok else "⚠️ 未运行"))
         checks.append(("DDG", f"✅" if ddg_ok else "⚠️ ddgs 未安装"))

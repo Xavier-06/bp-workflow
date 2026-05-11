@@ -253,9 +253,9 @@ def build_step_brief(task_id: str, step: str, entity: str = '', query: str = '')
         f'5. **唯一完成条件** → 将完整报告写入上方指定的输出文件路径',
         f'',
         f'### 补搜工具优先级',
-        f'1. `neodata-financial-search` — 金融数据首选（行情、财报、宏观）',
-        f'2. `finance-data-retrieval` — 结构化金融数据补充（历史数据、批量查询）',
-        f'3. `web_search` — 通用搜索（新闻、公告、行业报告）',
+        f'1. `NeoData 金融搜索` — A/HK 股首选（行情、财报、板块、研报，通过 search_gateway 自动调用）',
+        f'2. `yfinance (Python)` — 估值指标、美股数据、交叉验证',
+        f'3. `web_search` — 通用搜索（新闻、公告、行业报告、东财/雪球行情）',
         f'4. DuckDuckGo / SearXNG — 备用搜索',
         f'',
         f'### 补搜纪律',
@@ -308,9 +308,11 @@ def build_step_brief(task_id: str, step: str, entity: str = '', query: str = '')
 
 
 def build_step_prompt(step: str, entity: str, market: str = 'us') -> str:
-    """构建给 WorkBuddy Task 子代理的系统级提示词"""
+    """构建给 WorkBuddy Task 子代理的系统级提示词 — v2: 按角色加入专属验证规则"""
     role_name = STEP_ROLE.get(step, step)
-    return (
+
+    # 通用基础指令
+    base = (
         f"You are an expert investment research analyst specializing in {role_name}. "
         f"You are working on step '{step}' of an investment research pipeline for '{entity}' (market: {market}). "
         f"Your output must be in Markdown format, well-structured with multiple sections (## headers), "
@@ -319,17 +321,111 @@ def build_step_prompt(step: str, entity: str, market: str = 'us') -> str:
         f"If you cannot find specific data, SUPPLEMENTARY SEARCH FIRST before writing '未找到独立外部证据'. "
         f"Use thinking=high — reason carefully before writing each section.\n\n"
         f"CRITICAL: You must autonomously close the loop. When you discover data gaps during analysis:\n"
-        f"1. Search for the missing data yourself (neodata-financial-search → finance-data-retrieval → web_search)\n"
+        f"1. Search for the missing data yourself (NeoData via search_gateway → yfinance → web_search)\n"
         f"2. Integrate the found data into your analysis\n"
         f"3. Only mark as '待核实' after 3 rounds of supplementary search still yield nothing\n"
         f"Do NOT return to the coordinator for search instructions — you ARE the search agent.\n\n"
-        f"COVERAGE SELF-CHECK: Before writing final output, verify:\n"
+        f"DATA SOURCE PRIORITY:\n"
+        f"- A/HK stocks: NeoData (via search_gateway, auto-invoked) → yfinance (cross-validation) → web_search\n"
+        f"- US stocks: yfinance → web_search\n"
+        f"- NeoData covers: real-time quotes, financials, sector data, analyst reports\n"
+        f"- search_gateway automatically routes financial queries to NeoData Layer 0\n\n"
         f"- Required fields coverage ≥ 70%\n"
         f"- ≥ 3 independent sources\n"
         f"- ≥ 3 ## level sections\n"
         f"- Content length ≥ 3000 chars\n"
-        f"If self-check fails, do more research before outputting."
+        f"If self-check fails, do more research before outputting.\n\n"
     )
+
+    # 角色专属 ANTI-DEFECT RULES
+    step_rules = {
+        'step1_data': (
+            'ANTI-DEFECT RULES:\n'
+            '1. FINANCING/LISTING STATUS: Before citing any company (target or competitor), verify their '
+            'current listing/financing status. If yfinance returns no data for a previously known ticker, '
+            'search whether the company has been delisted, privatized, or acquired.\n'
+            '2. PERSON VERIFICATION: Every person name cited must be verified via at least 1 independent '
+            'source. NEVER fabricate person names or positions from model training data.\n'
+            '3. YFINANCE ACCURACY: For key financial data (revenue, market cap, PE), cross-verify yfinance '
+            'data with at least 1 web_search source (东财/雪球/公司IR页). If discrepancy >10%, investigate.\n'
+            '4. COMPETITOR FINANCING VERIFICATION: For every competitor in comparison tables, search-verify '
+            'their current financing/IPO status. NEVER use stale training data (e.g. "private, B轮" when '
+            'company has IPO\'d). If listed, use yfinance for real-time market cap and cite ticker.\n'
+        ),
+        'step2_industry': (
+            'ANTI-DEFECT RULES:\n'
+            '1. COMPETITOR STATUS VERIFICATION: For every competitor listed, search-verify their current '
+            'financing/IPO status. A competitor marked as "private, B轮" may have since IPO\'d. '
+            'Update status and note date of verification.\n'
+            '2. INDUSTRY REPORT CURRENCY: When citing market size data, verify you are using the LATEST '
+            'edition of the report. Search "{report} {year} latest edition" before citing.\n'
+            '3. REGULATORY STATUS: For regulated industries, verify current policy status before citing '
+            'policy-driven market assumptions. Search "{policy} 现行 有效 最新政策".\n'
+        ),
+        'step3_biz': (
+            'ANTI-DEFECT RULES:\n'
+            '1. COMPETITOR MOAT VERIFICATION: When scoring competitor moat dimensions, each score must be '
+            'based on SEARCH-VERIFIED current data, not model training data. A competitor\'s capability '
+            'may have changed significantly since training cutoff.\n'
+        ),
+        'step4_finance': (
+            'ANTI-DEFECT RULES:\n'
+            '1. LATEST FILING VERIFICATION: Before citing annual report data, verify it is the LATEST filing. '
+            'Search "{company} 最新年报 {year}" and check HKEX/SEC for recent filings. '
+            'If a newer report exists, use the newer data.\n'
+            '2. AUDIT OPINION CHECK: Note the audit opinion for each year cited. A change in audit opinion '
+            '(e.g., from "unqualified" to "qualified") is a significant red flag that must be highlighted.\n'
+        ),
+        'step5_mgmt': (
+            'ANTI-DEFECT RULES:\n'
+            '1. PERSON EXISTENCE VERIFICATION (CRITICAL): EVERY person name mentioned in the management '
+            'team section MUST be verified to actually exist at this company. Search "{person name} '
+            '{company} 高管/董事/管理层" to confirm. If no independent source confirms this person\'s '
+            'association with the company after 2 searches, write "⚠ 该人员信息未经独立来源验证". '
+            'NEVER fabricate person names from model training data — this is the HIGHEST RISK area '
+            'for data fabrication in this step.\n'
+            '2. MANAGEMENT CURRENCY: Management team data from annual reports may be outdated (CEO changes, '
+            'director resignations). Search "{company} 管理层变动 CEO变更 {year}" for recent changes.\n'
+            '3. MANAGEMENT LEGAL STATUS: For key management members, search for recent legal/regulatory '
+            'issues: "{person name} 处罚 调查 诉讼". Recent issues are material to governance assessment.\n'
+        ),
+        'step6_insight': (
+            'ANTI-DEFECT RULES:\n'
+            '1. COMPETITOR DATA CURRENCY: When citing competitor data from prior steps, verify it is current. '
+            'If prior steps used stale competitor data, note this as a limitation.\n'
+        ),
+        'step6b_valuation': (
+            'ANTI-DEFECT RULES:\n'
+            '1. COMPARABLE COMPANY STATUS VERIFICATION (CRITICAL): For EVERY comparable company in the '
+            'comps table, search-verify their CURRENT status: (a) If currently listed: use yfinance to '
+            'verify ticker is active, pull latest market cap/PE/PS. (b) If currently private: search '
+            'IT桔子/36氪/企查查 for latest round and date. CRITICAL: check whether they have IPO\'d '
+            'SINCE the last private valuation you found. (c) If delisted/privatized: note date and last '
+            'available valuation. (d) If acquired: note acquisition price — this IS a valuation data point. '
+            'Status column format: "上市公司(代码) 市值X亿" or "未上市 X轮 金额(日期)" or '
+            '"已IPO(代码) 市值X亿" or "已收购 价格X亿(日期)". NEVER assume private companies '
+            'remain private without verification. This is the #1 cause of valuation errors.\n'
+            '2. VALUATION DATA TIMELINESS: All financial data (revenue, PE, PS, etc.) must be verified '
+            'as current within 6 months. Data >12 months old must be labeled with ⚠ warning.\n'
+        ),
+        'step7_risk': (
+            'ANTI-DEFECT RULES:\n'
+            '1. REGULATORY STATUS CURRENCY: Every regulatory risk cited must be search-verified for CURRENT '
+            'status. A regulation described as "即将出台" in older sources may have been enacted, revised, '
+            'or shelved. Search "{regulation} 最新 现行 有效 {year}" before citing.\n'
+            '2. COMPETITOR COMPLIANCE EVENTS: For competition-related risks, search whether major competitors '
+            'have recent regulatory penalties — this may reduce competitive pressure on the target.\n'
+        ),
+        'step8_master': (
+            'ANTI-DEFECT RULES:\n'
+            '1. FINANCING STATUS CONSISTENCY: Check that the same entity\'s financing/IPO status is consistent '
+            'across all steps. If step1 describes a competitor as "private" but step6b uses listed-company '
+            'multiples for it, this is a critical inconsistency that must be resolved by search verification.\n'
+        ),
+    }
+
+    rules = step_rules.get(step, '')
+    return base + rules if rules else base
 
 
 # ═══════════════════════════════════════════════════════

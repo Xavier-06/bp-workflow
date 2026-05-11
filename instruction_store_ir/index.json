@@ -1,10 +1,10 @@
 {
   "meta": {
-    "version": 3,
+    "version": 4,
     "created_at": "2026-03-17T15:15:00",
-    "updated_at": "2026-03-31T15:00:00",
+    "updated_at": "2026-05-11T14:10:00",
     "source": "notes/investment-research-agent-roles.md",
-    "changelog": "v3 (2026-03-31): 全面修复优必选研报暴露的16类问题 — 新增算术验算/估值方法选择矩阵/情景锚点一致性/去重规则/路径清洗/来源分级/竞争对手精度/护城河评分规范/可比公司适当性/管理层目标可行性论证/数据包字段大幅扩充"
+    "changelog": "v5 (2026-05-11): 重新集成NeoData金融搜索为search_gateway Layer 0；A/HK股数据源优先级：NeoData→yfinance(交叉验证)→web_search；valuation_enricher双源估值+差异>5%自动警告；Coordinator phase0加NeoData token预检；所有step补搜工具优先级更新"
   },
   "roles": [
     {
@@ -62,5 +62,8 @@
       "name": "文档汇总 Agent",
       "file": "投研_主笔_文档汇总.md"
     }
+  ],
+  "notes": [
+    "投研_主笔_BP估值.md 已移至 instruction_store_bp/bp_估值.md，由 BP 管线读取，不属于 IR 管线角色"
   ]
 }

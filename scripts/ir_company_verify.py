@@ -29,11 +29,8 @@ import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
-for _p in ['/opt/homebrew/etc/openssl@3/cert.pem', '/usr/local/etc/openssl@3/cert.pem']:
-    if os.path.exists(_p):
-        os.environ.setdefault('SSL_CERT_FILE', _p)
-        os.environ.setdefault('REQUESTS_CA_BUNDLE', _p)
-        break
+os.environ.setdefault('SSL_CERT_FILE', '/opt/homebrew/etc/openssl@3/cert.pem')
+os.environ.setdefault('REQUESTS_CA_BUNDLE', '/opt/homebrew/etc/openssl@3/cert.pem')
 
 WORKSPACE = Path(__file__).resolve().parent.parent
 TASKS_DIR = WORKSPACE / 'data' / 'tasks'
@@ -221,11 +218,15 @@ def run(task_id: str, entity: str = '', market: str = 'us') -> dict:
             ticker = valuation_data.get('ticker', '')
             price = valuation_data.get('price', 'N/A')
             pe = valuation_data.get('pe_ratio', 'N/A')
-            print(f"\n  📈 Yahoo Finance: {ticker} | 价格=${price} | PE={pe}")
+            source = valuation_data.get('data_source', 'yfinance')
+        currency = '¥' if source == 'neodata' else '$'
+        print(f"\n  📈 估值数据({source}): {ticker} | 价格={currency}{price} | PE={pe}")
+        if valuation_data.get('price_warning'):
+            print(f"  ⚠ {valuation_data['price_warning']}")
         else:
-            print(f"\n  📈 Yahoo Finance: 未找到对应 ticker")
+            print(f"\n  📈 估值数据: 未找到对应 ticker")
     except Exception as e:
-        print(f"\n  📈 Yahoo Finance: 获取失败 ({e})")
+        print(f"\n  📈 估值数据: 获取失败 ({e})")
         valuation_data = {'error': str(e)}
     
     # 6. 组装报告
@@ -258,7 +259,7 @@ def run(task_id: str, entity: str = '', market: str = 'us') -> dict:
         f'**查询数**: {total_queries}',
         f'**结果数**: {len(all_results)}',
         f'',
-        f'## 估值数据 (Yahoo Finance)',
+        f'## 估值数据 (NeoData + Yahoo Finance)',
         f'',
     ]
     if valuation_data.get('ticker'):

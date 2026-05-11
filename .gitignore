@@ -65,3 +65,12 @@ text_*.json
 # Package lock (not needed for deployment)
 package-lock.json
 package.json
+
+# Runtime memory data
+memory/hot/HOT_MEMORY.md
+memory/warm/WARM_MEMORY.md
+memory/topics/*.md
+# Memory agent runtime data
+memory_agent/instructions/
+# Deprecated instruction files
+*.deprecated

@@ -1,30 +1,25 @@
 #!/usr/bin/env python3
 """
-统一搜索网关 v4
+统一搜索网关 v5
 
 搜索栈：
+  Layer 0: NeoData 金融数据（A/HK股行情、财报、板块、研报，金融查询优先）
   Layer 1: DDG Python API 直连（清代理，中英文主力）
-  Layer 2: SearXNG 本地实例（Baidu + Bing 补充）
-  Layer 3: Google 直接抓取（走代理，自己解析）
-  Layer 4: scrapling 深度抓取（正文提取）
-  Layer 5: yfinance 估值数据（金融专用）
-
-依赖安装：
-  pip install ddgs scrapling yfinance requests
-
-SearXNG 安装：
-  docker run -d -p 8888:8888 --name searxng searxng/searxng:latest
+  Layer 2: SearXNG 8888（Baidu + Bing 补充）
+  Layer 3: Google 直接抓取（scrapling 走 7897 代理，自己解析）
+  Layer 4: scrapling 深度抓取（对搜索结果做正文提取）
+  Layer 5: yfinance 估值数据（IR 管线专用）
 
 接口：
     from scripts.search_gateway import search, search_deep, search_many, verify_engines
     from scripts.search_gateway import fetch_page, yfinance_summary, google_search
+    from scripts.search_gateway import neodata_search
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -32,6 +27,7 @@ from urllib.parse import quote_plus, urlparse
 
 import requests
 import ssl as _ssl
+import time as _time
 import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -58,24 +54,19 @@ except Exception:
     pass
 
 WORKSPACE = Path(__file__).resolve().parent.parent
-
-# ── 配置（全部支持环境变量覆盖）──────────────────────────
-CERT_PATH = os.getenv("SSL_CERT_PATH", "")
-if not CERT_PATH:
-    # macOS Homebrew OpenSSL 常见路径，自动探测
-    _candidates = ["/opt/homebrew/etc/openssl@3/cert.pem", "/usr/local/etc/openssl@3/cert.pem"]
-    for _p in _candidates:
-        if os.path.exists(_p):
-            CERT_PATH = _p
-            break
-if CERT_PATH:
+CERT_PATH = "/opt/homebrew/etc/openssl@3/cert.pem"
+if os.path.exists(CERT_PATH):
     os.environ.setdefault("SSL_CERT_FILE", CERT_PATH)
     os.environ.setdefault("REQUESTS_CA_BUNDLE", CERT_PATH)
     os.environ.setdefault("CURL_CA_BUNDLE", CERT_PATH)
 
-SEARXNG_URL = os.getenv("SEARXNG_URL", "http://127.0.0.1:8888")
-PROXY_URL = os.getenv("PROXY_URL", "http://127.0.0.1:7897")
-DDGS_BIN = os.getenv("DDGS_BIN", "ddgs")
+SEARXNG_URL = "http://127.0.0.1:8888"
+PROXY_URL = "http://127.0.0.1:7897"
+DDGS_BIN = os.getenv("DDGS_BIN", "/opt/homebrew/bin/ddgs")
+
+NEODATA_ENDPOINT = os.getenv("NEODATA_ENDPOINT", "https://copilot.tencent.com/agenttool/v1/neodata")
+NEODATA_TOKEN_FILE = Path.home() / ".workbuddy" / ".neodata_token"
+NEODATA_TOKEN_TTL = 12 * 3600  # 12 hours
 
 _LOCAL = requests.Session()
 _LOCAL.trust_env = False
@@ -172,6 +163,187 @@ def _restore_proxy_env(backup: dict):
     os.environ.update(backup)
 
 
+# ── 金融查询判定 ────────────────────────────────────────
+
+_FINANCE_KEYWORDS = (
+    '股价', '行情', '财报', '营收', '净利润', '估值', '市盈率', '市净率',
+    'PE', 'PB', 'PS', '市值', '涨幅', '跌停', '涨停', '资金流向',
+    '毛利率', '净利率', 'ROE', 'ROIC', '分红', '股息', '派息',
+    '业绩', '年报', '季报', '半年报', '中报', 'EPS', 'EBITDA',
+    'stock price', 'market cap', 'earnings', 'revenue', 'valuation',
+    'dividend', 'financial', 'balance sheet', 'income statement',
+    '板块', '龙头股', '基金', 'ETF', '指数',
+)
+_STOCK_CODE_PATTERN = re.compile(
+    r'\b(\d{6}|0\d{4})\b'  # A股6位/港股5位代码
+    r'|[A-Z]{2,5}\.[A-Z]{2}'  # ticker: 600519.SS, 0700.HK, AAPL
+    r'|\b[A-Z]{1,5}\b'  # 美股 ticker (短)
+)
+
+
+def _is_finance_query(query: str) -> bool:
+    """判断查询是否为金融类查询（用于触发 NeoData Layer 0）。"""
+    q_lower = query.lower()
+    # 关键词命中
+    if any(kw.lower() in q_lower for kw in _FINANCE_KEYWORDS):
+        return True
+    # 股票代码模式
+    if _STOCK_CODE_PATTERN.search(query):
+        return True
+    return False
+
+
+# ── Layer 0: NeoData 金融数据 ─────────────────────────
+
+def _neodata_read_token() -> Optional[str]:
+    """从缓存文件读取 NeoData token（12 小时有效期）。"""
+    try:
+        raw = NEODATA_TOKEN_FILE.read_text().strip()
+        if not raw:
+            return None
+        data = json.loads(raw)
+        saved_at = data.get("saved_at", 0)
+        token = data.get("token", "")
+        if not token:
+            return None
+        if _time.time() - saved_at > NEODATA_TOKEN_TTL:
+            return None
+        return token
+    except (FileNotFoundError, PermissionError, json.JSONDecodeError, TypeError):
+        return None
+
+
+def neodata_search(query: str, data_type: str = "api") -> list:
+    """通过 NeoData API 查询金融数据，返回统一格式的搜索结果列表。
+
+    data_type: "api" = 仅结构化数据, "doc" = 仅文章, "all" = 两者都取
+    返回格式与 search() 统一：[{"title", "url", "content", "engine", "source"}]
+    """
+    token = _neodata_read_token()
+    if not token:
+        return []
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+    payload = {
+        "query": query,
+        "channel": "neodata",
+        "sub_channel": "workbuddy",
+    }
+    if data_type != "all":
+        payload["data_type"] = data_type
+
+    try:
+        resp = requests.post(NEODATA_ENDPOINT, headers=headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        body = resp.json()
+    except Exception:
+        return []
+
+    if body.get("code") != "200" or not body.get("suc"):
+        return []
+
+    results = []
+    data = body.get("data", {})
+
+    # 结构化 API 数据 → 转为统一搜索结果格式
+    api_data = data.get("apiData", {})
+    entity_list = api_data.get("entity", [])
+    entity_name = entity_list[0].get("name", query) if entity_list else query
+
+    for recall in api_data.get("apiRecall", []):
+        content = recall.get("content", "")
+        if not content:
+            continue
+        results.append({
+            "title": f"{entity_name} — {recall.get('type', '金融数据')}",
+            "url": "",
+            "content": content,
+            "engine": "neodata",
+            "source": "neodata:api",
+            "tag": recall.get("tag", ""),
+        })
+
+    # 文章数据 → 转为统一搜索结果格式
+    doc_data = data.get("docData") or {}
+    for group in doc_data.get("docRecall", []):
+        for doc in group.get("docList", []):
+            title = doc.get("title", "")
+            url = doc.get("url", "")
+            snippet = doc.get("snippet", "") or doc.get("content", "")
+            if not title:
+                continue
+            results.append({
+                "title": title,
+                "url": url,
+                "content": snippet[:500] if snippet else "",
+                "engine": "neodata",
+                "source": "neodata:doc",
+                "publishedDate": doc.get("publishDate", ""),
+            })
+
+    return results
+
+
+def neodata_summary(entity: str) -> Optional[dict]:
+    """通过 NeoData 获取公司估值快照，返回与 yfinance_summary 兼容的 dict。
+
+    仅返回结构化行情数据，用于 valuation_enricher 交叉验证。
+    """
+    results = neodata_search(f"{entity} 行情 估值", data_type="api")
+    if not results:
+        return None
+
+    # 从 NeoData 返回的 content 文本中提取关键指标
+    content = "\n".join(r.get("content", "") for r in results)
+    if not content:
+        return None
+
+    def _extract(pattern: str, text: str, as_float: bool = True) -> Any:
+        m = re.search(pattern, text)
+        if not m:
+            return None
+        val = m.group(1).replace(",", "").replace("，", "").strip()
+        if as_float:
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return None
+        return val
+
+    price = _extract(r'最新价格[：:]\s*([\d,.]+)', content)
+    pe = _extract(r'市盈率\(TTM\)[：:]\s*([\d,.]+)', content)
+    pb = _extract(r'市净率[：:]\s*([\d,.]+)', content)
+    market_cap = _extract(r'(?:流通)?市值\(亿元\)[：:]\s*([\d,.]+)', content)
+    volume = _extract(r'成交金额\(万元\)[：:]\s*([\d,.]+)', content)
+
+    if not price:
+        return None
+
+    # 市值从亿转为元（与 yfinance 对齐）
+    market_cap_raw = market_cap * 1e8 if market_cap else None
+
+    return {
+        "ticker": "",
+        "price": price,
+        "market_cap": market_cap_raw,
+        "pe_trailing": pe,
+        "pe_forward": None,
+        "ps": None,
+        "pb": pb,
+        "ev_ebitda": None,
+        "revenue": None,
+        "profit_margin": None,
+        "sector": "",
+        "industry": "",
+        "currency": "CNY",
+        "volume_wan": volume,
+        "source": "neodata",
+    }
+
+
 # ── Layer 1: DDG Python API 直连 ──────────────────────
 
 def _ddg_search(query: str, max_results: int = 10) -> list:
@@ -198,7 +370,7 @@ def _ddg_search(query: str, max_results: int = 10) -> list:
     # CLI fallback（也清代理）
     backup2 = _clear_proxy_env()
     try:
-        if not shutil.which(DDGS_BIN):
+        if not os.path.exists(DDGS_BIN):
             return []
         result = subprocess.run(
             [DDGS_BIN, "text", "-k", query, "-m", str(max_results + 5), "-r", "wt-wt"],
@@ -282,7 +454,7 @@ def _searxng_search(query: str, max_results: int = 10, engines: str = "", timeou
 # ── Layer 3: Google 直接抓取 ──────────────────────────
 
 def google_search(query: str, max_results: int = 10) -> list:
-    """走代理抓 Google 搜索页。
+    """走 7897 代理抓 Google 搜索页。
     
     Google 现在返回 JS 渲染页面，Fetcher 无法解析。
     改用 requests + 代理 + 特殊 User-Agent 请求非 JS 版本。
@@ -401,12 +573,16 @@ def search(query: str, max_results: int = 10, timeout: int = 25, prefer: str = "
     """统一搜索入口。
 
     prefer:
-        auto    - DDG 优先 + SearXNG 补充
+        auto    - 金融查询先走 NeoData Layer 0，不够再 DDG + SearXNG 补充
         ddg     - 只用 DDG
         searxng  - 只用 SearXNG
         google   - 只用 Google 直接抓取
-        multi    - DDG + SearXNG + Google 三路合并（最全）
+        multi    - NeoData + DDG + SearXNG + Google 四路合并（最全）
+        neodata  - 只用 NeoData
     """
+    if prefer == "neodata":
+        return neodata_search(query, data_type="all")
+
     if prefer == "ddg":
         return _ddg_search(query, max_results)
 
@@ -417,13 +593,22 @@ def search(query: str, max_results: int = 10, timeout: int = 25, prefer: str = "
         return google_search(query, max_results)
 
     if prefer == "multi":
+        s0 = neodata_search(query, data_type="all") if _is_finance_query(query) else []
         s1 = _ddg_search(query, max_results + 5)
         s2 = _searxng_search(query, max_results + 5, timeout=timeout)
         s3 = google_search(query, max_results + 5)
-        return _dedupe(s1 + s2 + s3, max_results, query=query)
+        return _dedupe(s0 + s1 + s2 + s3, max_results, query=query)
 
-    # auto: DDG 优先，不够再补 SearXNG
-    results = _ddg_search(query, max_results)
+    # auto: 金融查询先走 NeoData Layer 0，不够再 DDG + SearXNG 补充
+    results = []
+    if _is_finance_query(query):
+        results = neodata_search(query, data_type="all")
+        if len(results) >= max_results:
+            return results
+
+    # DDG 优先，不够再补 SearXNG
+    ddg_results = _ddg_search(query, max_results)
+    results = _dedupe(results + ddg_results, max_results, query=query)
     if len(results) >= max_results:
         return results
     need = max_results - len(results)
@@ -463,7 +648,7 @@ def verify_engines() -> dict:
         from ddgs import DDGS
         ddg_ok = True
     except ImportError:
-        ddg_ok = bool(shutil.which(DDGS_BIN))
+        ddg_ok = os.path.exists(DDGS_BIN)
 
     scrapling_ok = False
     try:
@@ -486,24 +671,25 @@ def verify_engines() -> dict:
     except ImportError:
         pass
 
+    neodata_ok = _neodata_read_token() is not None
+
     proxy_ok = False
-    _proxy_host = PROXY_URL.replace("http://", "").replace("https://", "").rstrip("/")
     try:
-        r = requests.get(PROXY_URL, timeout=3)
+        r = requests.get("http://127.0.0.1:7897", timeout=3)
         proxy_ok = True
     except Exception:
         try:
             import socket
-            _addr, _, _port = _proxy_host.partition(":")
             s = socket.socket()
             s.settimeout(2)
-            s.connect((_addr, int(_port or 7897)))
+            s.connect(("127.0.0.1", 7897))
             s.close()
             proxy_ok = True
         except Exception:
             pass
 
     return {
+        "neodata": neodata_ok,
         "ddg": ddg_ok,
         "searxng": searxng_ok,
         "searxng_url": SEARXNG_URL,
@@ -523,7 +709,7 @@ if __name__ == "__main__":
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--verify", action="store_true")
     ap.add_argument("--deep", action="store_true")
-    ap.add_argument("--prefer", choices=["auto", "ddg", "searxng", "google", "multi"], default="auto")
+    ap.add_argument("--prefer", choices=["auto", "ddg", "searxng", "google", "multi", "neodata"], default="auto")
     args = ap.parse_args()
 
     if args.verify:
