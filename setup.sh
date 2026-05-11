@@ -2,10 +2,11 @@
 # ═══════════════════════════════════════════════════════════
 # 🐲 IR/BP Workflow — 一键安装脚本
 # 用法: bash setup.sh [--workbuddy|--openclaw] [--skip-pip] [--skip-searxng]
+# 远程一键安装: bash <(curl -fsSL https://raw.githubusercontent.com/Xavier-06/ir-bp-workflow/main/setup.sh)
 # ═══════════════════════════════════════════════════════════
 set -euo pipefail
 
-PLATFORM="${1:---workbuddy}"
+PLATFORM="--workbuddy"
 SKIP_PIP=false
 SKIP_SEARXNG=false
 
@@ -58,7 +59,7 @@ fi
 # ── 3. 安装 Python 依赖 ──
 if [ "$SKIP_PIP" = false ]; then
   info "安装 Python 依赖..."
-  pip install -r requirements.txt 2>/dev/null || pip3 install -r requirements.txt
+  pip3 install -r requirements.txt 2>/dev/null || pip install -r requirements.txt || warn "pip install 失败，请手动安装: pip3 install -r requirements.txt"
 fi
 
 # ── 4. 配置环境变量 ──
@@ -81,6 +82,10 @@ for skill in ir-coordinator ir-researcher ir-reporter ir-verifier; do
   fi
   mkdir -p "$SKILLS_DIR/$skill"
   cp "$TARGET_DIR/skills/$skill/SKILL.md" "$SKILLS_DIR/$skill/SKILL.md"
+  # 复制 references 目录（含管线规则、质量门禁等）
+  if [ -d "$TARGET_DIR/skills/$skill/references" ]; then
+    cp -r "$TARGET_DIR/skills/$skill/references" "$SKILLS_DIR/$skill/"
+  fi
 done
 
 # ── 6. 配置平台 ──
@@ -108,15 +113,43 @@ mkdir -p "$TARGET_DIR/outputs"
 info "验证安装..."
 cd "$TARGET_DIR"
 
-if python3 -m runtime.orchestrator.pipeline_orchestrator --help &>/dev/null; then
-  info "✅ 管线编排器正常"
+PASS=0
+FAIL=0
+
+# 验证 1: 关键目录
+for dir in scripts instruction_store_ir instruction_store_bp skills rules; do
+  if [ -d "$TARGET_DIR/$dir" ]; then
+    info "  $dir/ ✓"
+    ((PASS++))
+  else
+    error "  $dir/ ✗ 缺失"
+    ((FAIL++))
+  fi
+done
+
+# 验证 2: 管线入口
+if python3 "$TARGET_DIR/runtime/orchestrator/pipeline_orchestrator.py" --help &>/dev/null; then
+  info "  管线编排器 ✓"
+  ((PASS++))
 else
-  warn "管线编排器验证失败，请检查 Python 依赖"
+  warn "  管线编排器 — 验证失败（可能缺少 Python 依赖）"
+  ((FAIL++))
 fi
+
+# 验证 3: Skills
+for skill in ir-coordinator ir-researcher ir-reporter ir-verifier; do
+  if [ -f "$SKILLS_DIR/$skill/SKILL.md" ]; then
+    info "  Skill: $skill ✓"
+    ((PASS++))
+  else
+    error "  Skill: $skill ✗ 未安装"
+    ((FAIL++))
+  fi
+done
 
 echo ""
 info "═══════════════════════════════════════════"
-info "🐲 IR/BP Workflow 安装完成!"
+info "🐲 IR/BP Workflow 安装完成! ($PASS 通过, $FAIL 失败)"
 info ""
 info "下一步："
 info "  1. 编辑 $TARGET_DIR/.env 配置 API 密钥"
