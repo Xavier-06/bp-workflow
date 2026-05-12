@@ -69,6 +69,45 @@ manifest 包含：task_id, step, role, entity, query, market, system_prompt, bri
 
 **BP 任务**：执行 BP 维度时，OCR 配置 → 读 **references/bp-ocr-config.md**，Gap 检测模板 → 读 **references/bp-gap-detection.md**
 
+#### NeoData 调用方式（A/HK 股金融数据优先通道）
+
+NeoData 是 IR 管线的**一级数据源**（Layer 0），覆盖 A/HK 股行情、财报、板块、资金流向、研报评级等。所有金融类查询必须优先走 NeoData。
+
+**调用方法**（通过 `execute_command` 工具执行 Bash 命令）：
+
+```bash
+# 方式1：通过 search_gateway.search() 自动走 Layer 0（推荐，金融查询自动触发 NeoData）
+cd ~/.workbuddy/ir_runtime && python3 -c "
+from scripts.search_gateway import search
+results = search('贵州茅台股价', max_results=5)
+for r in results:
+    print(r.get('title',''), r.get('body','')[:200])
+"
+
+# 方式2：直接调用 neodata_search() 获取结构化金融数据（适合精确查询）
+cd ~/.workbuddy/ir_runtime && python3 -c "
+from scripts.search_gateway import neodata_search
+results = neodata_search('贵州茅台 市盈率')
+print(results)
+"
+
+# 方式3：批量查询多个关键词
+cd ~/.workbuddy/ir_runtime && python3 -c "
+from scripts.search_gateway import search_many
+results = search_many(['贵州茅台 股价', '贵州茅台 财报', '贵州茅台 资金流向'])
+for q, rs in results.items():
+    print(f'--- {q} ---')
+    for r in rs[:2]:
+        print(r.get('title',''), r.get('body','')[:150])
+"
+```
+
+**注意事项**：
+- **Token 由 Coordinator 在派发前确保有效**，子代理无需自行刷新。如果遇到 token 过期提示，通知 Coordinator 而非自行处理
+- **金融查询关键词示例**：`"{公司名} 股价`、`{公司名} 财报`、`{公司名} 市盈率`、`{股票代码} 资金流向`、`{行业} 板块行情`
+- **NeoData 返回结构化数据**，比 web_search 的网页摘要更精确，优先使用
+- **降级**：NeoData 无结果或超时时，search_gateway 自动降级到 DDG → SearXNG → Google
+
 ### 7. 写入输出
 
 **用 write_to_file 写入**：`{IR_RUNTIME}/data/tasks/{TASK_ID}-{step}.md`
@@ -88,7 +127,7 @@ manifest 包含：task_id, step, role, entity, query, market, system_prompt, bri
 2. **来源不足（<3 个 URL）** → 自己搜更多来源，补充到输出中
 3. **数据矛盾** → 自己判断哪个更可靠，标注矛盾来源
 4. **前序 step 输出有 gap** → 自己补充搜索填补
-5. **搜索策略**：neodata → finance-data → web_search → tushare/yahoo，每次补搜最多追加 2 轮
+5. **搜索策略**：NeoData（A/HK股优先）→ yfinance → web_search → tushare/yahoo，每次补搜最多追加 2 轮
 6. **唯一需要回主控的情况**：step 输出文件写完，表示完成
 
 ## 核心约束

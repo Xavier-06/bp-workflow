@@ -5,8 +5,8 @@
 搜索栈：
   Layer 0: NeoData 金融数据（A/HK股行情、财报、板块、研报，金融查询优先）
   Layer 1: DDG Python API 直连（清代理，中英文主力）
-  Layer 2: SearXNG 本地实例（Baidu + Bing 补充，需配置 SEARXNG_URL）
-  Layer 3: Google 直接抓取（需配置 PROXY_URL，走代理自己解析）
+  Layer 2: SearXNG 8888（Baidu + Bing 补充）
+  Layer 3: Google 直接抓取（scrapling 走 7897 代理，自己解析）
   Layer 4: scrapling 深度抓取（对搜索结果做正文提取）
   Layer 5: yfinance 估值数据（IR 管线专用）
 
@@ -54,24 +54,15 @@ except Exception:
     pass
 
 WORKSPACE = Path(__file__).resolve().parent.parent
-
-# ── 配置（全部支持环境变量覆盖）──────────────────────────
-CERT_PATH = os.getenv("SSL_CERT_PATH", "")
-if not CERT_PATH:
-    # macOS Homebrew OpenSSL 常见路径，自动探测
-    _candidates = ["/opt/homebrew/etc/openssl@3/cert.pem", "/usr/local/etc/openssl@3/cert.pem"]
-    for _p in _candidates:
-        if os.path.exists(_p):
-            CERT_PATH = _p
-            break
-if CERT_PATH:
+CERT_PATH = "/opt/homebrew/etc/openssl@3/cert.pem"
+if os.path.exists(CERT_PATH):
     os.environ.setdefault("SSL_CERT_FILE", CERT_PATH)
     os.environ.setdefault("REQUESTS_CA_BUNDLE", CERT_PATH)
     os.environ.setdefault("CURL_CA_BUNDLE", CERT_PATH)
 
-SEARXNG_URL = os.getenv("SEARXNG_URL", "")
-PROXY_URL = os.getenv("PROXY_URL", "")
-DDGS_BIN = os.getenv("DDGS_BIN", "ddgs")
+SEARXNG_URL = "http://127.0.0.1:8888"
+PROXY_URL = "http://127.0.0.1:7897"
+DDGS_BIN = os.getenv("DDGS_BIN", "/opt/homebrew/bin/ddgs")
 
 NEODATA_ENDPOINT = os.getenv("NEODATA_ENDPOINT", "https://copilot.tencent.com/agenttool/v1/neodata")
 NEODATA_TOKEN_FILE = Path.home() / ".workbuddy" / ".neodata_token"
@@ -118,6 +109,9 @@ def _relevance_ok(row: dict, query: str) -> bool:
     q = (query or "").strip()
     if not q:
         return True
+    # NeoData 结构化金融数据天然相关，跳过相关性检查
+    if row.get("engine") == "neodata":
+        return True
     keywords = re.findall(r"[\u4e00-\u9fff]{2,}", q)
     if not keywords:
         keywords = [w.strip("\"'") for w in q.split() if len(w) > 2][:3]
@@ -129,8 +123,22 @@ def _relevance_ok(row: dict, query: str) -> bool:
     text = f"{title} {content} {url}".lower()
 
     # 关键词必须出现在 title 或 content 中（不能只在 URL 里）
+    # 对中文关键词做子串拆分匹配：如"贵州茅台股价"拆为["贵州茅台","股价"]
     title_content = f"{title} {content}".lower()
     has_keyword_in_body = any(kw.lower() in title_content for kw in keywords)
+    if not has_keyword_in_body:
+        # 尝试将连续中文词进一步拆分（2字符窗口滑动）
+        sub_keywords = set()
+        for kw in keywords:
+            if len(kw) >= 4:
+                for i in range(0, len(kw) - 1, 2):
+                    sub = kw[i:i+2]
+                    if len(sub) == 2 and re.match(r"[\u4e00-\u9fff]{2}", sub):
+                        sub_keywords.add(sub)
+        if sub_keywords:
+            matched = sum(1 for sk in sub_keywords if sk.lower() in title_content)
+            has_keyword_in_body = matched >= max(1, len(sub_keywords) // 2)
+
     if not has_keyword_in_body:
         return False
 
@@ -149,7 +157,13 @@ def _dedupe(rows: list, max_results: int, query: str = "") -> list:
     out, seen = [], set()
     for r in rows:
         u = r.get("url", "")
-        if not u or u in seen or _is_noise(r):
+        # NeoData 结构化数据没有 URL，用 engine+title 作为去重键
+        if not u:
+            if r.get("engine") == "neodata":
+                u = f"neodata::{r.get('title', id(r))}"
+            else:
+                continue
+        if u in seen or _is_noise(r):
             continue
         if query and not _relevance_ok(r, query):
             continue
@@ -230,6 +244,14 @@ def neodata_search(query: str, data_type: str = "api") -> list:
     """
     token = _neodata_read_token()
     if not token:
+        try:
+            raw = NEODATA_TOKEN_FILE.read_text().strip()
+            if not raw:
+                print("[NeoData] ⚠️ TOKEN_MISSING: 无 token 文件，请联系 Coordinator 刷新", file=__import__('sys').stderr)
+            else:
+                print("[NeoData] ⚠️ TOKEN_EXPIRED: token 已过期（12h有效期），请通知 Coordinator 调用 connect_cloud_service 刷新", file=__import__('sys').stderr)
+        except FileNotFoundError:
+            print("[NeoData] ⚠️ TOKEN_MISSING: 无 token 文件，请联系 Coordinator 刷新", file=__import__('sys').stderr)
         return []
 
     headers = {
@@ -252,6 +274,9 @@ def neodata_search(query: str, data_type: str = "api") -> list:
         return []
 
     if body.get("code") != "200" or not body.get("suc"):
+        # API 返回非 200 可能是 token 无效
+        if body.get("code") in ("401", "403"):
+            print("[NeoData] ⚠️ TOKEN_INVALID: API 返回鉴权失败，请通知 Coordinator 刷新 token", file=__import__('sys').stderr)
         return []
 
     results = []
@@ -425,8 +450,6 @@ def _parse_ddgs_text(stdout: str, max_results: int, query: str = "") -> list:
 # ── Layer 2: SearXNG ──────────────────────────────────
 
 def _searxng_search(query: str, max_results: int = 10, engines: str = "", timeout: int = 25) -> list:
-    if not SEARXNG_URL:
-        return []
     params: dict[str, Any] = {
         "q": query,
         "format": "json",
@@ -465,14 +488,11 @@ def _searxng_search(query: str, max_results: int = 10, engines: str = "", timeou
 # ── Layer 3: Google 直接抓取 ──────────────────────────
 
 def google_search(query: str, max_results: int = 10) -> list:
-    """走代理抓 Google 搜索页。
+    """走 7897 代理抓 Google 搜索页。
     
     Google 现在返回 JS 渲染页面，Fetcher 无法解析。
     改用 requests + 代理 + 特殊 User-Agent 请求非 JS 版本。
-    需要 PROXY_URL 环境变量，未配置则跳过。
     """
-    if not PROXY_URL:
-        return []
     try:
         lang = "zh-CN" if _has_chinese(query) else "en"
         url = f"https://www.google.com/search?q={quote_plus(query)}&hl={lang}&num={max_results + 5}"
@@ -525,7 +545,7 @@ def fetch_page(url: str, timeout: int = 20, use_proxy: bool = False) -> Optional
     try:
         from scrapling.fetchers import Fetcher
         kwargs: dict[str, Any] = {"stealthy_headers": True, "timeout": timeout}
-        if use_proxy and PROXY_URL:
+        if use_proxy:
             kwargs["proxy"] = PROXY_URL
         page = Fetcher.get(url, **kwargs)
         if page.status == 200:
@@ -535,7 +555,7 @@ def fetch_page(url: str, timeout: int = 20, use_proxy: bool = False) -> Optional
         pass
     # requests fallback
     try:
-        proxies = {"http": PROXY_URL, "https": PROXY_URL} if use_proxy and PROXY_URL else None
+        proxies = {"http": PROXY_URL, "https": PROXY_URL} if use_proxy else None
         r = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"}, proxies=proxies)
         r.raise_for_status()
         from html.parser import HTMLParser
@@ -652,8 +672,6 @@ def search_many(queries: List[str], max_results: int = 8, prefer: str = "auto") 
 def verify_engines() -> dict:
     searxng_ok = False
     try:
-        if not SEARXNG_URL:
-            raise ConnectionError("SEARXNG_URL not configured")
         r = _LOCAL.get(f"{SEARXNG_URL}/healthz", timeout=5)
         searxng_ok = r.status_code == 200
     except Exception:
@@ -690,22 +708,19 @@ def verify_engines() -> dict:
     neodata_ok = _neodata_read_token() is not None
 
     proxy_ok = False
-    if PROXY_URL:
+    try:
+        r = requests.get("http://127.0.0.1:7897", timeout=3)
+        proxy_ok = True
+    except Exception:
         try:
-            r = requests.get(PROXY_URL, timeout=3)
+            import socket
+            s = socket.socket()
+            s.settimeout(2)
+            s.connect(("127.0.0.1", 7897))
+            s.close()
             proxy_ok = True
         except Exception:
-            try:
-                from urllib.parse import urlparse
-                parsed = urlparse(PROXY_URL)
-                import socket
-                s = socket.socket()
-                s.settimeout(2)
-                s.connect((parsed.hostname, parsed.port or 80))
-                s.close()
-                proxy_ok = True
-            except Exception:
-                pass
+            pass
 
     return {
         "neodata": neodata_ok,
