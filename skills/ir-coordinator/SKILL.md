@@ -35,6 +35,56 @@ allowed-tools:
 **INSTRUCTION_STORE**: `~/.workbuddy/ir_runtime/instruction_store/`
 **PIPELINE_ORCHESTRATOR**: `python3 -m runtime.orchestrator.pipeline_orchestrator`
 
+## ⚠️⚠️⚠️ 命令执行铁律（2026-05-09 教训）
+
+### 规则1：所有 python3 管线命令必须带 `cd {IR_RUNTIME} &&`
+Bash 工具每次调用是**独立 shell**，工作目录默认是用户项目目录，不是 IR_RUNTIME。
+**每一个** `python3 -m runtime.orchestrator.pipeline_orchestrator` 命令都必须用 `cd ~/.workbuddy/ir_runtime && python3 -m runtime.orchestrator.pipeline_orchestrator ...` 的格式。
+违反此规则 = ModuleNotFoundError。没有例外。submit、execute、任何子命令，全部带 cd。
+
+### 规则2：bg_pid 必须 poll 到进程结束才能推进下一 phase
+当 execute 返回 `needs_poll: true` 和 `bg_pid` 时：
+1. 用 `kill -0 {bg_pid}` 检查进程是否存活
+2. 如果存活，`sleep 30` 后再检查，循环直到进程结束
+3. 进程结束后，检查对应目录产物是否非空
+4. **只有确认 bg 进程完成 + 产物存在后，才能 execute --start-phase 推进下一 phase**
+5. 绝对不能 `sleep` 一个固定时间就推进——必须确认进程真正结束
+
+### 规则3：禁止重复粘贴同一行错误命令
+如果同一个命令连续失败 2 次，必须停下来分析错误原因，不能继续重复执行。
+
+### 规则4：子代理 prompt 必须声明工具限制（2026-05-11 教训）
+general-purpose 子代理**没有 Glob/Grep 工具**。如果 prompt 不声明，子代理会调用不存在的工具导致秒崩。
+**所有子代理 prompt 开头必须加**：
+```
+⚠️ 工具限制：你没有 Glob/Grep 工具。搜索文件用 Bash（find/ls），读文件用 Read，搜索内容用 Bash（grep）。不要调用 Glob 或 Grep。
+```
+
+### 规则5：派发 wave 后必须主动轮询输出文件（2026-05-11 教训）
+子代理消息可能延迟或丢失，**不能被动等消息**。派发 wave 后必须：
+1. 用 Bash `test -s {output_path}` 定期检查每个 step 的输出文件
+2. 每 60 秒检查一次，最多等 20 分钟
+3. 文件就绪（>100 bytes）= 该 step 完成，不论是否收到子代理消息
+4. 全部 step 文件就绪 → shutdown 子代理 → launch_next_wave()
+5. 超时未就绪 → 重派（最多 2 次）
+
+### 规则6：shutdown 后必须从 team config 移除已退出成员（2026-05-11 教训）
+子代理 shutdown approve 后，`config.json` 可能仍显示 `backend=in-process`，导致无法派发同名新子代理。
+收到 shutdown_response 后，**立即执行**：
+1. 用 Python 读取 `/Users/xavier/.workbuddy/teams/{team_name}/config.json`
+2. 从 `members` 列表中移除已 shutdown 的成员
+3. 写回 config.json
+如果仍然无法派发（Agent 工具内存缓存未刷新），**执行 TeamDelete 彻底清理**，然后用新 team name 重建。如果 TeamDelete 也无法清除内存状态，说明框架级别的 agent 注册表卡死——**必须重启 session**。这意味着当前任务无法继续，需要重新开始。
+
+**⚠️ 核心教训**：规则5（主动轮询）是根本解决方案。如果能在子代理卡死前及时发现问题并重派，就不会触发这个无法恢复的状态。被动等消息 → 子代理卡死 → 内存锁死 → 无法恢复，这条链必须在第一步就切断。
+
+### 规则7：NeoData token 过期自动刷新（2026-05-12 教训）
+token 有效期 12 小时。长管线跑完可能过期。
+1. **每波派发前检查 token**：`cd ~/.workbuddy/ir_runtime && python3 -c "from scripts.search_gateway import _neodata_read_token; print('OK' if _neodata_read_token() else 'EXPIRED')"`
+2. **EXPIRED 时立即刷新**：调用 `connect_cloud_service` 获取 tempToken → 写入 `~/.workbuddy/.neodata_token`（JSON 格式 `{"token": "tk_xxx", "saved_at": <unix_timestamp>}`）
+3. **子代理会自动提示**：search_gateway 在 token 过期时会输出 stderr 提示，子代理看到后应通知 Coordinator
+4. **不要等子代理报告**——Coordinator 主动检查，避免整波子代理白跑
+
 ## 架构概览
 
 ```
@@ -64,15 +114,40 @@ PipelineOrchestrator
 
 收到任务后，**立即读取对应管线的 reference 文件**获取详细流程。
 
+### NeoData Token 预检（Phase 0 必须执行）
+
+在管线提交前，确保 NeoData 金融数据服务可用（A/HK 股数据源）：
+
+```bash
+# 检测 token 是否有效
+cd ~/.workbuddy/ir_runtime && python3 -c "
+from scripts.search_gateway import _neodata_read_token
+t = _neodata_read_token()
+print('NEODATA_TOKEN_OK' if t else 'NEODATA_TOKEN_MISSING')
+"
+```
+
+如果输出 `NEODATA_TOKEN_MISSING`：
+1. 调用 `connect_cloud_service` 获取 tempToken
+2. 执行 `python3 ~/.workbuddy/skills/NeoData金融搜索服务/scripts/query.py --save-token "<tempToken>"`
+3. 重新检测
+
+Token 有效期 12 小时，一次刷新足够跑完整管线（~2 小时）。
+**子代理无法自行刷新 token，必须由 Coordinator 在派发前确保有效。**
+
 ### 调度框架（两种管线共用）
 
 ```python
+# ⚠️ 所有命令必须 cd ~/.workbuddy/ir_runtime && 前缀
 # 1. 提交任务
-python3 -m runtime.orchestrator.pipeline_orchestrator submit \
+cd ~/.workbuddy/ir_runtime && python3 -m runtime.orchestrator.pipeline_orchestrator submit \
   --entity "标的名称" --market cn [--input-file /path/to/bp.pdf]
 
 # 2. 执行到 needs_dispatch 暂停
-python3 -m runtime.orchestrator.pipeline_orchestrator execute --job-id TASK-XXXXX
+cd ~/.workbuddy/ir_runtime && python3 -m runtime.orchestrator.pipeline_orchestrator execute --job-id TASK-XXXXX
+
+# 2a. 如果返回 needs_poll: true + bg_pid，必须轮询直到进程结束
+while kill -0 {bg_pid} 2>/dev/null; do sleep 30; done
 
 # 3. 创建 team，循环派发 wave
 team_create(team_name=f"ir-{task_id}" / f"bp-{task_id}")

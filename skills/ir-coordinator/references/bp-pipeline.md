@@ -18,11 +18,17 @@ phase3_delivery            — 一致性验证 + delivery gate + DD 报告交付
 ## 提交任务
 
 ```bash
-cd {IR_RUNTIME}
-
-# BP 任务
-python3 -m runtime.orchestrator.pipeline_orchestrator submit \
+# ⚠️ 所有 python3 管线命令必须带 cd 前缀（Bash 每次调用是独立 shell）
+cd ~/.workbuddy/ir_runtime && python3 -m runtime.orchestrator.pipeline_orchestrator submit \
   --entity "公司名称" --market cn --input-file /path/to/bp.pdf
+
+# 执行管线（同样必须带 cd）
+cd ~/.workbuddy/ir_runtime && python3 -m runtime.orchestrator.pipeline_orchestrator execute --job-id TASK-XXXXX
+
+# ⚠️ 如果返回 needs_poll: true + bg_pid，必须轮询到进程结束才能推进
+# while kill -0 {bg_pid} 2>/dev/null; do sleep 30; done
+# 确认进程结束后，再用 --start-phase 推进下一 phase
+cd ~/.workbuddy/ir_runtime && python3 -m runtime.orchestrator.pipeline_orchestrator execute --job-id TASK-XXXXX --start-phase phase2_dispatch_prepare
 ```
 
 ## BP Step 波次（分步派发，自动化）
@@ -32,16 +38,28 @@ python3 -m runtime.orchestrator.pipeline_orchestrator submit \
 
 | 波次 | Steps | 维度 | 触发方式 |
 |------|-------|------|---------|
-| Wave 1 | bp_团队与合规, bp_技术与产品, bp_行业与供应链 | 前 3 维度并行 | phase2_dispatch_prepare 自动暂停 |
+| Wave 1 | bp_团队与合规, bp_技术与产品, bp_行业与供应链, bp_估值 | 前 4 维度并行 | phase2_dispatch_prepare 自动暂停 |
 | Wave 2 | bp_竞争与结论 | 竞争与结论（依赖 Wave 1 输出） | phase25_competition_prepare 自动暂停 |
 | Wave 3 | bp_统稿 | 投研逻辑重组+执行摘要 | phase3_synthesis_prepare 自动暂停 |
 
 ## BP 子代理派发硬规则（team 异步模式）
 
-- **必须用 team 异步模式**：`team_create(team_name=f"bp-{task_id}")` → `task(name=..., team_name=...)` → 轮询输出文件
+- **必须用 team 异步模式**：`team_create(team_name=f"bp-{task_id}")` → `Agent(name=..., team_name=..., run_in_background=True)` → 轮询输出文件
 - **禁止用同步 `task()`**（无 name 参数）——会返回 code=10003 挂掉
-- `subagent_name` 固定为 `code-explorer`，`mode="bypassPermissions"`
-- 派发后通过 `execute_command` 轮询输出文件（sleep 30 → test -s → 重复）
+- `mode="bypassPermissions"`
+- **⚠️ 规则4：子代理 prompt 必须声明工具限制**（SKILL.md 规则4）
+  所有子代理 prompt 开头加：
+  ```
+  ⚠️ 工具限制：你没有 Glob/Grep 工具。搜索文件用 Bash（find/ls），读文件用 Read，搜索内容用 Bash（grep）。不要调用 Glob 或 Grep。
+  ```
+- **⚠️ 规则5：派发后主动轮询输出文件，不等消息**（SKILL.md 规则5）
+  - 每 60 秒用 Bash `test -s {output_path}` 检查每个 step 的输出文件
+  - 文件就绪（>100 bytes）= 该 step 完成，不论是否收到子代理消息
+  - 超时 20 分钟未就绪 → 重派（最多 2 次）
+- **⚠️ 规则6：shutdown 后清理 team config**（SKILL.md 规则6）
+  - 收到 shutdown_response approve 后，立即用 Python 从 config.json members 移除该成员
+  - 如果仍无法派发 → TeamDelete → 新建 team
+  - TeamDelete 也无法清除内存状态 → 必须重启 session
 - 收到所有同 wave 输出文件后 → 自动调用 `execute(..., start_phase=...)` 推进下一 phase
 - **绝对不要等待用户说"继续"**
 
@@ -77,8 +95,15 @@ python3 -m runtime.orchestrator.pipeline_orchestrator submit \
 ## Team 清理硬规则
 
 - 交付完成后**必须清理 team**，否则 workspace 会一直挂着
-- 清理顺序：先 `send_message(type="shutdown_request", recipient=每个member)` → 等 10 秒 → `team_delete()`
+- 清理顺序：
+  1. 每个子代理完成后，立即 `send_message(type="shutdown_request", recipient=member)`
+  2. 收到 shutdown_response approve 后，**立即用 Python 从 config.json 移除该成员**（规则6）：
+     ```bash
+     python3 -c "import json; p='/Users/xavier/.workbuddy/teams/{team}/config.json'; d=json.load(open(p)); d['members']=[m for m in d['members'] if m['name']!='{step}']; json.dump(d,open(p,'w'),ensure_ascii=False,indent=2)"
+     ```
+  3. 全部成员清理完毕 → `team_delete()`
 - 如果 `team_delete()` 因 active member 失败，再次发送 shutdown_request 并等待后重试
+- 如果 TeamDelete 也无法清除内存状态（Agent 工具内存缓存未刷新），需重启 session
 - 绝对不能跳过 team 清理就结束对话
 
 ## DD 报告生成与交付

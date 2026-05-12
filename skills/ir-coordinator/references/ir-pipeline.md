@@ -3,9 +3,9 @@
 ## 管线阶段
 
 ```
-phase0_preflight          — 环境检测 + 任务注册
-phase05_company_verify    — 公司验证 + 估值数据 (yfinance)
-phase1_presearch          — 8 step 预搜索 (SearchGateway/SearXNG)
+phase0_preflight          — 环境检测 + 任务注册 + NeoData token 预检
+phase05_company_verify    — 公司验证 + 估值数据 (NeoData优先 + yfinance交叉验证)
+phase1_presearch          — 8 step 预搜索 (NeoData Layer 0 + SearchGateway/SearXNG)
 phase15_extract           — URL 内容提取 (Scrapling 三层递进)
 phase4_dispatch_prepare   — launch_next_wave() 发射第一个 wave，返回 needs_dispatch
 │   └── kernel 暂停，coordinator 循环 launch_next_wave() 推进所有 wave
@@ -28,11 +28,15 @@ from ir_subagent_launcher_wb import (
 ## 提交任务
 
 ```bash
-cd {IR_RUNTIME}
-
-# IR 任务
-python3 -m runtime.orchestrator.pipeline_orchestrator submit \
+# ⚠️ 所有 python3 管线命令必须带 cd 前缀（Bash 每次调用是独立 shell）
+cd ~/.workbuddy/ir_runtime && python3 -m runtime.orchestrator.pipeline_orchestrator submit \
   --entity "标的名称" --market cn --query "研究重点"
+
+# 执行管线（同样必须带 cd）
+cd ~/.workbuddy/ir_runtime && python3 -m runtime.orchestrator.pipeline_orchestrator execute --job-id TASK-XXXXX
+
+# ⚠️ 如果返回 needs_poll: true + bg_pid，必须轮询到进程结束才能推进
+# while kill -0 {bg_pid} 2>/dev/null; do sleep 30; done
 ```
 
 返回 `job_id`（如 `TASK-XXXXXXXX-XXX`）。
@@ -65,6 +69,10 @@ python3 -m runtime.orchestrator.pipeline_orchestrator execute --job-id TASK-XXXX
 
 # Phase 4: Coordinator 用 team 异步模式发射 wave
 MAX_RETRIES = 2
+TOOL_LIMITS = """⚠️ 工具限制：你没有 Glob/Grep 工具。搜索文件用 Bash（find/ls），读文件用 Read，搜索内容用 Bash（grep）。不要调用 Glob 或 Grep。
+NeoData 金融数据查询（A/HK 股首选，token 已在 preflight 存好）：
+  cd ~/.workbuddy/ir_runtime && python3 -c "from scripts.search_gateway import neodata_search; import json; print(json.dumps(neodata_search('查询语句'), ensure_ascii=False))"
+"""
 
 # 1. 创建 team
 team_create(team_name=f"ir-{task_id}")
@@ -76,29 +84,34 @@ while True:
         break
     
     # 为本 wave 每个 step 派发 team member（同一 wave 内并行）
+    # ⚠️ 规则4：prompt 开头必须加 TOOL_LIMITS
     for instruction in result['task_tool_instructions']:
         step = instruction['step']
         output_path = instruction['output_path']
         
-        task(
-            subagent_name='code-explorer',
+        Agent(
             name=f'{step}',
             team_name=f'ir-{task_id}',
             mode='bypassPermissions',
             description=step,
-            prompt=instruction['prompt'],
+            prompt=TOOL_LIMITS + "\n" + instruction['prompt'],
+            run_in_background=True
         )
     
-    # 轮询等待所有 team member 完成（检查输出文件）
-    for instruction in result['task_tool_instructions']:
-        output_path = instruction['output_path']
-        # execute_command: sleep 30 && test -s {output_path}
-        # 最多等 15 分钟，超时则重派
+    # 规则5：主动轮询输出文件，不等消息
+    # 具体做法：派发完所有子代理后，用一个 Bash 命令循环检查
+    # bash: while true; do all_ok=true; for f in path1 path2 ...; do test -s "$f" || all_ok=false; done; $all_ok && break; sleep 60; done
+    # 超过 20 分钟未完成的 step → 重派（最多 2 次）
+    
+    # 规则6：shutdown 后从 config 移除成员
+    # 收到 shutdown_response approve 后立即执行：
+    # python3 -c "import json; p='/Users/xavier/.workbuddy/teams/{team}/config.json'; d=json.load(open(p)); d['members']=[m for m in d['members'] if m['name']!='{step}']; json.dump(d,open(p,'w'),ensure_ascii=False,indent=2)"
+    # 如果仍无法派发 → TeamDelete → 新建 team
+    # ⚠️ 2026-05-11 实测：TeamDelete 也可能无法清除 Agent 工具的内存注册表
+    # 如果 TeamDelete 后仍报 "A teammate named X is already active"，说明框架级内存锁死
+    # 此时唯一方案是重启 session，当前任务无法继续
 
 # 清理 team
-for member_name in [active_member_names]:
-    send_message(type="shutdown_request", recipient=member_name, content="Work complete")
-# 等待 10 秒
 team_delete()
 
 # Phase 5: 全自动交付
@@ -107,12 +120,14 @@ result = finalize_pipeline(task_id, entity, market)
 
 ## IR 子代理派发规则
 
-- **必须用 team 异步模式**：`team_create()` → `task(name=..., team_name=...)` → 轮询输出文件
+- **必须用 team 异步模式**：`team_create()` → `Agent(name=..., team_name=..., run_in_background=True)` → 轮询输出文件
 - **禁止用同步 `task()`**（无 name 参数）——会返回 code=10003 挂掉
 - `subagent_name` 固定为 `code-explorer`
 - `mode="bypassPermissions"` 确保子代理可写文件
+- **⚠️ 子代理 prompt 必须加工具限制声明**（规则4）：Glob/Grep 不存在，用 Bash+Read 替代
 - `launch_next_wave()` 返回的 `task_tool_instructions` 包含完整的 prompt（含 brief_path + output_path）
-- 派发后通过 `execute_command` 轮询输出文件是否存在且 >100 字节
+- **派发后主动轮询**（规则5）：每 60 秒用 Bash `test -s` 检查输出文件，不依赖子代理消息
+- **shutdown 后清理 team config**（规则6）：从 config.json members 移除已退出成员
 - 输出文件超时未出现 → 重派（最多重试 2 次）
 - 重试仍然失败 → 记录失败原因，跳过该 step，继续下一 wave
 - step8_master 失败 → 用已有 step 输出拼接兜底
@@ -145,7 +160,7 @@ result = finalize_pipeline(task_id, entity, market)
 ## 子代理自主闭环规则
 
 子代理在执行过程中必须自主闭环，不要回主控等待指示：
-1. **检测到数据缺口** → 自己补搜（neodata/finance-data/web_search），继续推进
+1. **检测到数据缺口** → 自己补搜（NeoData/yfinance/web_search/企查查MCP），继续推进
 2. **来源不足** → 自己搜更多来源，补充到输出中
 3. **数据矛盾** → 自己判断哪个更可靠，标注矛盾来源
 4. **前序 step 输出有 gap** → 自己补充搜索填补
