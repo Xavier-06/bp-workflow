@@ -131,6 +131,20 @@ cd ~/.workbuddy/ir_runtime && bash setup.sh
 | HTTP 代理 | Clash/V2Ray 等 | Google/Scrapling 翻墙 | ⚡ 按需 |
 | NeoData | WorkBuddy 内置 | A/HK 股金融数据 | ⚡ 推荐 |
 | VL 视觉模型 | qwen3-vl 等 | BP OCR | ⚡ BP 管线需 |
+| 企查查 MCP | WorkBuddy 内置 | BP 工商验证/竞争分析/知识产权 | ⚡ BP 管线需 |
+
+### MCP 工具依赖
+
+BP 管线的 Phase 0.5 工商验证和维度分析大量依赖企查查 MCP（WorkBuddy 内置），需要在 WorkBuddy 设置中连接 `qcc-company` 服务：
+
+| MCP 工具 | 能力 | 管线用途 |
+|---------|------|---------|
+| `mcp__qcc-company` | 工商信息（股东、注册资本、法人、变更记录、分支机构、对外投资） | Phase 0.5 验证、竞争分析、产业链分析 |
+| `mcp__qcc-risk` | 风险信息（诉讼、失信被执行人、行政处罚、经营异常） | 团队合规维度 |
+| `mcp__qcc-ipr` | 知识产权（专利、商标、著作权） | 团队合规维度 |
+| `mcp__qcc-operation` | 经营信息（招投标、资质许可、年报） | 竞争分析、行业供应链、估值 |
+
+> **注意**：企查查 MCP 仅用于 BP 管线。IR 管线通过搜索网关获取工商数据，不依赖 MCP。
 
 ### 网络配置说明
 

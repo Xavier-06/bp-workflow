@@ -110,3 +110,16 @@ python3 scripts/ir_preflight_check.py --help
 - 仓库**不含**密钥、venv、logs、历史运行数据
 - 所有端口和路径均通过环境变量配置，无硬编码
 - 支持 WorkBuddy 和 OpenClaw 两种平台（`setup.sh --openclaw`）
+
+## MCP 工具依赖（BP 管线）
+
+BP 管线的工商验证和维度分析依赖企查查 MCP，需在 WorkBuddy 设置中连接 `qcc-company` 服务：
+
+| MCP 工具 | 能力 | BP 管线用途 |
+|---------|------|------------|
+| `mcp__qcc-company` | 工商信息（股东、注册资本、法人、变更、分支机构、对外投资） | Phase 0.5 验证、竞争分析、产业链 |
+| `mcp__qcc-risk` | 风险信息（诉讼、失信被执行人、行政处罚、经营异常） | 团队合规维度 |
+| `mcp__qcc-ipr` | 知识产权（专利、商标、著作权） | 团队合规维度 |
+| `mcp__qcc-operation` | 经营信息（招投标、资质许可、年报） | 竞争分析、行业供应链、估值 |
+
+> 未连接企查查 MCP 时，BP 管线仍可运行，但工商验证和结构化竞品数据将缺失。IR 管线不依赖企查查 MCP。
