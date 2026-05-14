@@ -162,12 +162,12 @@ BP 管线的 Phase 0.5 工商验证和维度分析大量依赖企查查 MCP（Wo
 **配置代理**（仅 Google/Scrapling 层需要）：
 ```bash
 # 在 .env 中设置
-PROXY_URL=http://127.0.0.1:7897
+PROXY_URL=你的代理端口
 ```
 
 **配置 SearXNG**（推荐，提升搜索质量）：
 ```bash
-docker run -d -p 8888:8888 --name searxng searxng/searxng:latest
+docker run -d -p 你的端口 --name searxng searxng/searxng:latest
 ```
 
 **配置 NeoData**（推荐，A/HK 股首选数据源）：
@@ -271,7 +271,7 @@ finalize_pipeline() → 对抗验证 → DOCX 生成 → 桌面复制 → 微信
 ## 📊 项目数据
 
 - **160+ 个 Python 脚本**，**~28,000 行代码**
-- **已分析标的**：AVGO、泡泡玛特、优必选、东江环保、合肥艾创微、佰维存储、阅文集团、中芯国际、乾昇真空等
+- **已分析标的**：AVGO、泡泡玛特、优必选、东江环保、佰维存储、阅文集团、中芯国际、及部分融资项目等
 - **交付物**：券商级 DOCX 研报（执行摘要 + 估值分析 + 风险矩阵 + 免责声明）+ 估值 Excel
 - **自动化率**：Phase 0-5 全自动，Zero Human Intervention
 
