@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TASKS_DIR = ROOT / 'data' / 'tasks'
 IR_RUNTIME = ROOT / 'config' / 'ir-runtime.json'
-INSTRUCTION_INDEX = ROOT / 'instruction_store_ir' / 'index.json'
+INSTRUCTION_INDEX = ROOT / 'instruction_store' / 'index.json'
 TASK_LEDGER = TASKS_DIR / 'tasks.json'
 
 # Minimum subagent team for 专题研究类

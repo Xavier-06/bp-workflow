@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 
 ROOT = Path(__file__).resolve().parent.parent
-STORE = ROOT / 'instruction_store_ir'
+STORE = ROOT / 'instruction_store'
 
 def init_store():
     STORE.mkdir(parents=True, exist_ok=True)

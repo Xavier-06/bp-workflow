@@ -93,10 +93,9 @@ def ensure_searxng_running() -> bool:
         if now - ts < _SEARXNG_CACHE_TTL:
             return val
 
-    candidate_urls = []
-    _searxng_url = os.environ.get('SEARXNG_URL', '')
-    if _searxng_url:
-        candidate_urls.append(_searxng_url.rstrip('/'))
+    candidate_urls = [
+        'http://127.0.0.1:8888',
+    ]
 
     def _session():
         s = requests.Session()
@@ -319,8 +318,7 @@ class ResearchRunner:
         self.notify = notify
         
         self.searxng_healthy = ensure_searxng_running()
-        _searxng_urls = [u.rstrip('/') for u in [os.environ.get('SEARXNG_EN_URL', ''), os.environ.get('SEARXNG_URL', '')] if u]
-        self.adapter = SearXNGAdapter(_searxng_urls) if self.searxng_healthy and _searxng_urls else None
+        self.adapter = SearXNGAdapter(['http://127.0.0.1:18080', 'http://127.0.0.1:8888']) if self.searxng_healthy else None
         self.expander = get_expander()
         self.ddg_adapter = DDGAdapter()
         # ⚠️ 2026-04-04: CN instance (18081) deprecated — use DDG for Chinese

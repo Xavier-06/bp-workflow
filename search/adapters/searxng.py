@@ -28,8 +28,10 @@ class SearXNGAdapter(SearchAdapter):
 
     def __init__(self, base_urls: list[str], timeout: int = 20):
         cleaned = [u.rstrip('/') for u in base_urls if u]
+        if not cleaned:
+            cleaned = ['http://127.0.0.1:8888']
         self.base_urls = cleaned
-        self.local_url = cleaned[0] if cleaned else ''
+        self.local_url = cleaned[0]
         self.fallback_urls = cleaned[1:]
         self.timeout = timeout
         self.last_failure: dict[str, Any] | None = None

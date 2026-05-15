@@ -25,12 +25,12 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
 SEARXNG_VENV = ROOT / 'tools' / 'searxng' / '.venv' / 'bin' / 'python'
-SEARXNG_SOURCE = Path(os.environ.get('SEARXNG_SOURCE_DIR', ''))
+SEARXNG_SOURCE = Path(os.environ.get('SEARXNG_SOURCE_DIR', '/Users/xavier/Downloads/searxng-master'))
 PID_FILE = ROOT / 'tools' / 'searxng' / 'searxng-local.pid'
 LOG_FILE = ROOT / 'tools' / 'searxng' / 'searxng-local.log'
 DEFAULT_HOST = '127.0.0.1'
 DEFAULT_PORT = 8888
-SEARXNG_SECRET = os.environ.get('SEARXNG_SECRET', '')
+SEARXNG_SECRET = os.environ.get('SEARXNG_SECRET', 'workbuddy-ir-secret-2026')
 STARTUP_TIMEOUT = 30  # 秒
 
 

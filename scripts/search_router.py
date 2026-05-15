@@ -21,7 +21,7 @@ from typing import Optional
 # 3. 纯英文 → SearXNG EN (18080)
 # 4. 混合查询 → DDG CLI
 
-EN_URL = os.environ.get('SEARXNG_EN_URL', '')
+EN_URL = 'http://127.0.0.1:18080'
 
 
 def is_chinese_query(query: str) -> bool:

@@ -42,17 +42,9 @@ CREDENTIALS_FILE = ROOT / '.credentials' / 'investment-research.env'
 for d in [TASKS_DIR, OUTPUTS_DIR, ROOT / 'logs', ROOT / 'sessions']:
     d.mkdir(parents=True, exist_ok=True)
 
-# SSL 证书（自动探测，用户可通过 SSL_CERT_PATH 环境变量覆盖）
-_cert = os.getenv('SSL_CERT_PATH', '')
-if not _cert:
-    for _p in ['/opt/homebrew/etc/openssl@3/cert.pem', '/usr/local/etc/openssl@3/cert.pem',
-               '/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt']:
-        if os.path.exists(_p):
-            _cert = _p
-            break
-if _cert:
-    os.environ.setdefault('SSL_CERT_FILE', _cert)
-    os.environ.setdefault('REQUESTS_CA_BUNDLE', _cert)
+# SSL 证书 (macOS Homebrew)
+os.environ.setdefault('SSL_CERT_FILE', '/opt/homebrew/etc/openssl@3/cert.pem')
+os.environ.setdefault('REQUESTS_CA_BUNDLE', '/opt/homebrew/etc/openssl@3/cert.pem')
 
 # scripts/ 加入 sys.path
 if str(SCRIPTS_DIR) not in sys.path:
@@ -128,7 +120,6 @@ def check_environment():
         'ir_gap_detector': 'ir_gap_detector.py',
         'ir_query_rewriter': 'ir_query_rewriter.py',
         'ir_subagent_launcher': 'ir_subagent_launcher.py',
-        'ir_subagent_launcher_wb': 'ir_subagent_launcher_wb.py',
         'build_ir_evidence_table': 'build_ir_evidence_table.py',
         'build_ir_analysis_draft': 'build_ir_analysis_draft.py',
         'build_ir_final_memo': 'build_ir_final_memo.py',
@@ -144,7 +135,7 @@ def check_environment():
     }
 
     # 4. 子模块
-    sub_modules = ['research', 'content', 'search', 'routing', 'sources', 'memory', 'memory_agent', 'instruction_store_bp', 'instruction_store_ir']
+    sub_modules = ['research', 'content', 'search', 'routing', 'sources', 'memory', 'memory_agent', 'instruction_store']
     missing_mods = [m for m in sub_modules if not (ROOT / m).exists()]
     results['checks']['sub_modules'] = {
         'ok': len(missing_mods) == 0,
@@ -184,27 +175,25 @@ def check_environment():
     }
 
     # 6b. SearXNG (本地自建，自动启动)
-    searxng_url = os.environ.get('SEARXNG_URL', '')
-    searxng_ok = False
-    if searxng_url:
+    searxng_url = os.environ.get('SEARXNG_URL', 'http://localhost:8888')
+    try:
+        # 自动启动 SearXNG
+        from searxng_manager import auto_start, healthcheck as searxng_hc
+        auto_start()
+        searxng_ok = searxng_hc()
+    except Exception:
+        # fallback: 直接探测端口
         try:
-            # 自动启动 SearXNG
-            from searxng_manager import auto_start, healthcheck as searxng_hc
-            auto_start()
-            searxng_ok = searxng_hc()
+            import httpx
+            r = httpx.get(f'{searxng_url}/healthz', timeout=2)
+            searxng_ok = r.status_code == 200
         except Exception:
-            # fallback: 直接探测端口
-            try:
-                import httpx
-                r = httpx.get(f'{searxng_url}/healthz', timeout=2)
-                searxng_ok = r.status_code == 200
-            except Exception:
-                searxng_ok = False
+            searxng_ok = False
     results['checks']['searxng'] = {
         'ok': True,  # SearXNG 可选，不影响整体
         'available': searxng_ok,
         'url': searxng_url,
-        'msg': f'SearXNG 可用 ({searxng_url})' if searxng_ok else (f'⚠️ SearXNG 未配置 SEARXNG_URL，降级到 DDG/Yahoo' if not searxng_url else f'⚠️ SearXNG 自动启动失败 (可选，降级到 DDG/Yahoo)')
+        'msg': f'SearXNG 可用 ({searxng_url})' if searxng_ok else f'⚠️ SearXNG 自动启动失败 (可选，降级到 DDG/Yahoo)'
     }
 
     # 6c. DDG (免密钥，兜底搜索)

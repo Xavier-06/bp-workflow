@@ -69,7 +69,7 @@
 - 对每个场景给"短期可验证需求"和"中长期预期需求"两个维度
 
 ## 搜索工具优先级
-1. **NeoData 金融搜索** — A/HK 上市竞对财务数据、行业板块数据（search_gateway 自动调用）
+1. **NeoData 金融搜索** — A/HK 上市竞对财务数据、行业板块数据（通过 Bash 调用: `cd ~/.workbuddy/ir_runtime && python3 -c "from scripts.search_gateway import neodata_search; print(neodata_search('查询语句'))"` — data_type: api(行情/财报)/doc(研报)/all(两者)）
 2. **企查查 MCP** — 经营信息（招投标、资质许可、年报、供应商/客户线索）
    - `mcp__qcc-operation`：招投标记录、资质许可、年报数据
    - `mcp__qcc-company`：股东、对外投资、分支机构（产业链位置线索）

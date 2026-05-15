@@ -166,7 +166,7 @@ Excel 包含 3 个 Sheet：
 ## 数据纪律（硬规则）
 
 ### 数据获取工具优先级
-1. **NeoData 金融搜索** — A/HK 股行情/财报/板块/研报（search_gateway 自动调用）
+1. **NeoData 金融搜索** — A/HK 股行情/财报/板块/研报（通过 Bash 调用: `cd ~/.workbuddy/ir_runtime && python3 -c "from scripts.search_gateway import neodata_search; print(neodata_search('查询语句'))"` — data_type: api(行情/财报)/doc(研报)/all(两者)）
 2. **yfinance**（Python）— 上市公司估值指标（PE/PS/EV/市值/key statistics/财报，美股主力+交叉验证）
 3. **企查查 MCP** — 国内公司融资轮、工商信息、股东信息
 4. **web_search** — 融资事件（IT桔子/36氪）、可比交易、行业报告、退出案例
@@ -189,7 +189,7 @@ Excel 包含 3 个 Sheet：
 ## 自主补搜规则
 
 1. **BP 中融资数据不足** → 用企查查 MCP 查融资轮 / web_search 搜 IT桔子/36氪
-2. **缺少可比公司估值数据** → NeoData 拉 A/HK 上市公司 PE/PS/市值（search_gateway 自动调用）/ yfinance 拉美股 / web_search 搜同赛道最近融资事件
+2. **缺少可比公司估值数据** → NeoData 拉 A/HK 上市公司 PE/PS/市值（通过 Bash 调用: `cd ~/.workbuddy/ir_runtime && python3 -c "from scripts.search_gateway import neodata_search; print(neodata_search('查询语句'))"` — data_type: api(行情/财报)/doc(研报)/all(两者)）/ yfinance 拉美股 / web_search 搜同赛道最近融资事件
 3. **退出倍数缺参考** → web_search 搜同行业并购/IPO案例
 4. **DCF 参数不足** → NeoData/yfinance 拉可比公司 β/财务数据 / web_search 搜行业 ERP/Cost of Capital
 5. 补搜最多 3 轮

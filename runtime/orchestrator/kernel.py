@@ -59,6 +59,18 @@ class OrchestratorKernel:
                 print(f"  ⏸ needs_dispatch — 暂停于 {phase_name}，等待子代理完成后用 start_phase='{phases[i + 1] if i + 1 < len(phases) else 'done'}' 恢复", flush=True)
                 return results
 
+            if phase_result.get("needs_poll"):
+                results["poll_info"] = phase_result
+                results["status"] = "needs_poll"
+                results["paused_after"] = phase_name
+                results["next_phase"] = phases[i + 1] if i + 1 < len(phases) else None
+                results["ok"] = True  # 不是失败，是暂停
+                bg_pid = phase_result.get("bg_pid", "?")
+                timeout = phase_result.get("timeout", 900)
+                print(f"  ⏸ needs_poll — 后台子进程 PID={bg_pid} 执行中 ({phase_name})", flush=True)
+                print(f"    用 scripts/heavy_phase_bg.py poll_heavy_phase() 或 start_phase='{phases[i + 1] if i + 1 < len(phases) else 'done'}' 恢复", flush=True)
+                return results
+
             if phase_result.get("ok") is False:
                 results["ok"] = False
                 results["failed_phase"] = phase_name

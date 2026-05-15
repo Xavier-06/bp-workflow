@@ -117,7 +117,7 @@
 - 行业与供应链维度输出（`outputs/bp_phase2_industry.md`）
 
 ## 搜索工具优先级
-1. **NeoData 金融搜索** — A/HK 上市竞对的行情、财报、估值（search_gateway 自动调用，**可比公司市值/PE/PS 的首选数据源**）
+1. **NeoData 金融搜索** — A/HK 上市竞对的行情、财报、估值（通过 Bash 调用: `cd ~/.workbuddy/ir_runtime && python3 -c "from scripts.search_gateway import neodata_search; print(neodata_search('查询语句'))"` — data_type: api(行情/财报)/doc(研报)/all(两者)，**可比公司市值/PE/PS 的首选数据源**）
 2. **企查查 MCP** — 竞品工商信息、融资信息
    - `mcp__qcc-company`：竞品公司的注册资本、股东、融资历史
    - `mcp__qcc-operation`：竞品的招投标、资质（判断市场地位）
@@ -177,7 +177,7 @@
 - **一级市场交易**：引用同阶段同赛道融资交易案例
 
 **⚠️ 可比公司数据必须用实时数据源获取，禁止估算**：
-- **首选**：NeoData 搜索 `{公司名} 市值 市盈率 市销率`（search_gateway 自动调用，A/HK 股数据最全）
+- **首选**：NeoData 搜索 `{公司名} 市值 市盈率 市销率`（通过 Bash 调用: `cd ~/.workbuddy/ir_runtime && python3 -c "from scripts.search_gateway import neodata_search; print(neodata_search('查询语句'))"` — data_type: api(行情/财报)/doc(研报)/all(两者)，A/HK 股数据最全）
 - **备用**：web_search 搜索每家可比公司实时数据：`{公司名} {股票代码} 最新市值 市盈率 市销率 site:eastmoney.com OR site:xueqiu.com`
 - **交叉验证**：yfinance `python3 -c "import yfinance as yf; t=yf.Ticker('{股票代码}'); info=t.info; print(info.get('marketCap'), info.get('trailingPE'), info.get('priceToSalesTrailing12Months'))"`。A股代码格式：`{6位代码}.SS`（沪市）/ `{6位代码}.SZ`（深市），港股：`{5位代码}.HK`。
 - 报告中注明"数据截至 YYYY-MM-DD"。

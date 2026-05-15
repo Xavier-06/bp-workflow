@@ -38,11 +38,13 @@ STEP_QUALITY_THRESHOLD = 3
 
 # Step 角色名
 STEP_ROLE = {
+    'step0_tech': '投研_主笔_技术分析',
     'step1_data': '投研_主笔_数据收集',
     'step2_industry': '投研_主笔_行业分析',
     'step3_biz': '投研_主笔_商业模式',
     'step4_finance': '投研_主笔_财务分析',
     'step5_mgmt': '投研_主笔_管理层',
+    'step_macro': '投研_主笔_宏观分析',
     'step6_insight': '投研_主笔_差异化洞察',
     'step6b_valuation': '投研_主笔_预测与估值',
     'step7_risk': '投研_主笔_风险催化',
@@ -51,21 +53,23 @@ STEP_ROLE = {
 
 # 步间依赖关系
 STEP_DEPS = {
+    'step0_tech': [],
     'step1_data': [],
     'step2_industry': ['step1_data'],
     'step3_biz': ['step1_data'],
     'step4_finance': ['step1_data'],
     'step5_mgmt': ['step1_data'],
-    'step6_insight': ['step1_data', 'step2_industry', 'step3_biz', 'step6b_valuation'],
+    'step_macro': [],
+    'step6_insight': ['step1_data', 'step2_industry', 'step3_biz', 'step0_tech', 'step6b_valuation'],
     'step6b_valuation': ['step1_data', 'step2_industry', 'step4_finance'],
     'step7_risk': ['step1_data', 'step3_biz', 'step4_finance', 'step6b_valuation'],
-    'step8_master': ['step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step6_insight', 'step6b_valuation', 'step7_risk'],
+    'step8_master': ['step0_tech', 'step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step_macro', 'step6_insight', 'step6b_valuation', 'step7_risk'],
 }
 
 # 并行发射波次
 LAUNCH_WAVES = [
-    ['step1_data'],
-    ['step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt'],
+    ['step0_tech', 'step1_data'],
+    ['step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step_macro'],
     ['step6b_valuation'],
     ['step6_insight', 'step7_risk'],
     ['step8_master'],
@@ -73,11 +77,13 @@ LAUNCH_WAVES = [
 
 # 超时
 STEP_TIMEOUTS = {
+    'step0_tech': 600,
     'step1_data': 900,
     'step2_industry': 900,
     'step3_biz': 900,
     'step4_finance': 900,
     'step5_mgmt': 900,
+    'step_macro': 900,
     'step6_insight': 900,
     'step6b_valuation': 900,
     'step7_risk': 900,
@@ -86,11 +92,13 @@ STEP_TIMEOUTS = {
 
 # Step 查询关键词（用于自动补搜）
 _STEP_KEYWORDS = {
+    'step0_tech': 'technical analysis RSI MACD KDJ Bollinger momentum price action chart pattern 技术分析 指标 量价',
     'step1_data': 'stock price market cap PE ratio EPS dividend analyst rating 市值 股价 市盈率',
     'step2_industry': 'industry market size market share growth rate TAM penetration competitive landscape 行业规模 竞争格局',
     'step3_biz': 'business model product revenue customer supply chain 商业模式 产品线 客户 收入结构',
     'step4_finance': 'financial report revenue profit margin cash flow ROE debt 财报 营收 毛利率 净利润 现金流',
     'step5_mgmt': 'management board governance ownership ESG compensation 管理层 董事会 股权结构 治理',
+    'step_macro': 'CPI PMI interest rate LPR GDP inflation monetary policy 宏观 利率 通胀 PMI 社融',
     'step6_insight': 'catalyst valuation target price investment thesis risk-reward 催化剂 估值 目标价 投资亮点',
     'step6b_valuation': 'DCF valuation PE PB PS EV/EBITDA target price WACC comparable company valuation model 目标价 估值',
     'step7_risk': 'risk regulatory litigation competition macro threat 风险 监管 诉讼 竞争威胁 宏观',
@@ -98,6 +106,11 @@ _STEP_KEYWORDS = {
 }
 
 _STEP_QUERY_TEMPLATES = {
+    'step0_tech': [
+        '"{entity}" technical analysis price momentum indicators',
+        '"{entity}" stock chart pattern RSI MACD',
+        '"{entity}" 技术分析 量价 走势',
+    ],
     'step1_data': [
         '"{entity}" stock price market cap PE EPS analyst rating',
         '"{entity}" investor relations results announcement',
@@ -124,6 +137,11 @@ _STEP_QUERY_TEMPLATES = {
         '"{entity}" CEO management team leadership governance',
         '"{entity}" executive changes board ownership',
         '"{entity}" 管理层 董事会 股权结构 治理',
+    ],
+    'step_macro': [
+        '"{entity}" sector macro impact CPI PMI interest rate',
+        'China macro economy GDP inflation monetary policy latest',
+        '宏观 利率 通胀 PMI 社融 最新数据',
     ],
     'step6_insight': [
         '"{entity}" investment thesis valuation target price catalyst',
@@ -200,11 +218,13 @@ def deps_ready(task_id: str, step: str) -> tuple[bool, list[str]]:
 def load_instruction(role_key: str) -> str:
     """加载角色指令（instruction_store）"""
     instruction_map = {
+        'step0_tech': '投研_主笔_技术分析',
         'step1_data': '投研_主笔_数据收集',
         'step2_industry': '投研_主笔_行业分析',
         'step3_biz': '投研_主笔_商业模式',
         'step4_finance': '投研_主笔_财务分析',
         'step5_mgmt': '投研_主笔_管理层',
+        'step_macro': '投研_主笔_宏观分析',
         'step6_insight': '投研_主笔_差异化洞察',
         'step6b_valuation': '投研_主笔_预测与估值',
         'step7_risk': '投研_主笔_风险催化',
@@ -415,6 +435,36 @@ def build_step_prompt(step: str, entity: str, market: str = 'us') -> str:
             'or shelved. Search "{regulation} 最新 现行 有效 {year}" before citing.\n'
             '2. COMPETITOR COMPLIANCE EVENTS: For competition-related risks, search whether major competitors '
             'have recent regulatory penalties — this may reduce competitive pressure on the target.\n'
+        ),
+        'step0_tech': (
+            'ANTI-DEFECT RULES:\n'
+            '1. INDICATOR DATA SOURCE: Prefer pre-calculated indicators from step1_data output\'s '
+            '"Technical Indicators Summary" table. If missing or N/A, compute indicators yourself '
+            'using yfinance to pull historical price data (yfinance → compute RSI/MACD/KDJ/RoC/BB). '
+            'ALWAYS check data availability before proceeding.\n'
+            '2. CROSS-INDICATOR CONSISTENCY: Before finalizing scores, verify that at least 2 indicators '
+            'per layer (short/medium/long) agree on direction. If only 1 indicator is available for a layer, '
+            'mark confidence as "low" and note the limitation.\n'
+            '3. NO FUNDAMENTAL LEAKAGE: The output must NOT contain ANY fundamental metrics (PE, ROE, '
+            'revenue, profit margin, EPS). If you need to mention price levels, use only % change values.\n'
+            '4. NO TRADING ADVICE: Output must contain analysis scores and trend assessment only. '
+            'NEVER write "买入/卖出/看涨/看跌" or equivalent directional trading recommendations.\n'
+        ),
+        'step_macro': (
+            'ANTI-DEFECT RULES:\n'
+            '1. MACRO DATA TIMELINESS: Every macro indicator cited (CPI, PMI, LPR, GDP, etc.) must have '
+            'a publication date. Indicators older than 60 days must be marked with "⚠ 数据滞后 X 天". '
+            'Search "{indicator} 最新 {year}" to verify you have the latest release.\n'
+            '2. POLICY STATUS CURRENCY: When citing monetary/fiscal policy, verify it is CURRENT. '
+            'Search "{policy} 现行 最新 {year}" to confirm. Policies announced but not yet implemented '
+            'must be labeled as "待实施".\n'
+            '3. CROSS-MARKET IMPACT: For A/HK stocks, analyze BOTH China domestic macro AND global/'
+            'US macro spillover effects (Fed rates, USD/CNY). Do not analyze only one dimension.\n'
+            '4. IMPACT PATHWAY: Every macro judgment must include a concrete transmission mechanism '
+            'to the target company\'s sector. "利好" without an impact pathway is insufficient — '
+            'explain HOW (e.g., "降息→融资成本下降→资本密集型行业受益").\n'
+            '5. CONFIDENCE CALIBRATION: If a key indicator (e.g. PMI) is from a single source with no '
+            'cross-verification, set confidence to "medium" max. "high" requires ≥2 independent sources.\n'
         ),
         'step8_master': (
             'ANTI-DEFECT RULES:\n'
@@ -842,7 +892,7 @@ def launch_all(task_id: str, entity: str = '', query: str = '', dry_run: bool = 
             f"🐲 IR Pipeline 已派发\n"
             f"任务: {task_id}\n"
             f"实体: {entity}\n"
-            f"已派发: {result['total_steps_dispatched']}/8 steps\n"
+            f"已派发: {result['total_steps_dispatched']}/{len(LAUNCH_WAVES)} waves\n"
             f"运行时: WorkBuddy Task\n"
             f"⚠ 需主 AI 逐 step 派发 Task 子代理执行"
         )
@@ -927,7 +977,8 @@ def launch_next_wave(task_id: str, entity: str = '', query: str = '', market: st
 
     # 构建主 AI 的精确执行指令
     # step8_master 的前序 step 列表（需要读取它们的完整输出）
-    _STEP8_PRIOR_STEPS = ['step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step6_insight', 'step6b_valuation', 'step7_risk']
+    # 2026-05-15: 补入 step0_tech（技术分析）和 step_macro（宏观分析），对齐牛津论文 7-Agent 架构
+    _STEP8_PRIOR_STEPS = ['step0_tech', 'step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step_macro', 'step6_insight', 'step6b_valuation', 'step7_risk']
 
     task_instructions = []
     for r in dispatched:
@@ -971,7 +1022,8 @@ def launch_next_wave(task_id: str, entity: str = '', query: str = '', market: st
         if step == 'step8_master':
             prompt_body += (
                 f'2. 逐一读取上方列出的前序 step 完整输出文件\n'
-                f'3. 根据 brief 中的统稿规则，将 step1-7 的内容汇总为一份完整研报\n'
+                f'3. 根据 brief 中的统稿规则，将 step0_tech~step7 的内容汇总为一份完整研报\n'
+                f'   （step0_tech 技术分析结论、step_macro 宏观判断需纳入投资摘要和风险章节）\n'
                 f'4. 如发现数据缺口或矛盾，用 web_search 补搜验证（最多 3 轮）\n'
                 f'5. 将完整 Markdown 报告写入上方指定的输出路径\n\n'
             )
@@ -1047,7 +1099,7 @@ def finalize_pipeline(task_id: str, entity: str = '', market: str = 'us') -> dic
         _OFFICIAL = ['sec.gov','hkexnews.hk','cninfo.com.cn','szse.cn','sse.com.cn','ir.','investor.']
         _REPUTABLE = ['reuters.com','bloomberg.com','wsj.com','ft.com','economist.com','scmp.com','caixin.com','36kr.com','cls.cn','eastmoney.com','xueqiu.com']
         _REDFLAGS = ['待补','待填','TODO','无法验证','无法获取','需要进一步']
-        _STEP_ORDER = ['step1_data','step2_industry','step3_biz','step4_finance','step5_mgmt','step6_insight','step6b_valuation','step7_risk','step8_master']
+        _STEP_ORDER = ['step0_tech','step1_data','step2_industry','step3_biz','step4_finance','step5_mgmt','step_macro','step6_insight','step6b_valuation','step7_risk','step8_master']
         scores, issues = {}, []
         for step in _STEP_ORDER:
             f = TASKS_DIR / f'{task_id}-{step}.md'

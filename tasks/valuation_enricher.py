@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-估值数据补充 — 基于 yfinance 获取实时估值指标
+估值数据补充 — NeoData (A/HK优先) + yfinance 双源获取实时估值指标
 
 被 ir_company_verify.py 引用，提供 enrich_with_yahoo(entity) 接口。
 返回 dict 包含 ticker / price / pe_ratio / ps_ratio / pb_ratio / market_cap 等。
+
+数据源策略：
+- A/HK 股：NeoData 优先（原生中文数据，字段更全），yfinance 交叉验证
+- 美股：yfinance 主力
+- 价格差异 >5% 自动标注警告
 
 Ticker 解析策略（按优先级）：
 1. 直接格式匹配（A股6位代码、港股代码）
@@ -18,7 +23,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 try:
     import yfinance as yf
@@ -401,8 +406,114 @@ def _safe_float(val: Any) -> Any:
 
 # ── 主接口 ──────────────────────────────────────────────────
 
+def _is_a_hk_stock(entity: str) -> bool:
+    """判断实体是否为 A 股或港股标的（用于决定 NeoData 优先级）。"""
+    e = entity.strip()
+    # A 股代码
+    if _A_SHARE_PATTERN.match(e):
+        return True
+    # 港股代码
+    if _HK_PATTERN.match(e):
+        return True
+    # 内置映射中有（都是 A/HK 股）
+    if entity in _BUILTIN_NAME_MAP:
+        return True
+    # 持久化缓存中有 A/HK 后缀
+    cache = _load_cache()
+    ticker = cache.get(entity, '')
+    if any(ticker.endswith(s) for s in ('.HK', '.SS', '.SZ', '.BJ')):
+        return True
+    # 中文名（大概率是 A/HK）
+    if _is_chinese(entity):
+        return True
+    return False
+
+
+def _enrich_with_neodata(entity: str) -> Optional[dict[str, Any]]:
+    """通过 NeoData 获取 A/HK 股估值数据。
+
+    返回与 yfinance 兼容的 dict 格式，如果 NeoData 不可用或无数据返回 None。
+    """
+    try:
+        import sys
+        scripts_dir = str(_RUNTIME_ROOT / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        from search_gateway import neodata_summary
+        summary = neodata_summary(entity)
+        if not summary or not summary.get('price'):
+            return None
+        return {
+            'ticker': summary.get('ticker', ''),
+            'company_name': entity,
+            'price': _safe_float(summary.get('price')),
+            'currency': summary.get('currency', 'CNY'),
+            'pe_ratio': _safe_float(summary.get('pe_trailing')),
+            'forward_pe': _safe_float(summary.get('pe_forward')),
+            'ps_ratio': _safe_float(summary.get('ps')),
+            'pb_ratio': _safe_float(summary.get('pb')),
+            'market_cap': summary.get('market_cap'),
+            '52w_high': None,
+            '52w_low': None,
+            'revenue_ttm': summary.get('revenue'),
+            'eps': None,
+            'dividend_yield': None,
+            'beta': None,
+            'volume': None,
+            'avg_volume': None,
+            'volume_wan': summary.get('volume_wan'),
+            'updated_at': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'data_source': 'neodata',
+        }
+    except Exception:
+        return None
+
+
+def _cross_validate(primary: dict, secondary: dict, entity: str) -> dict:
+    """交叉验证两个数据源的价格，差异 >5% 则标注警告。
+
+    primary 的字段优先保留，secondary 用于填补 primary 缺失的字段。
+    """
+    result = dict(primary)
+
+    # 填补 primary 缺失的字段
+    for key in ('52w_high', '52w_low', 'revenue_ttm', 'eps', 'dividend_yield', 'beta',
+                'forward_pe', 'ps_ratio', 'volume', 'avg_volume'):
+        if not result.get(key) and secondary.get(key):
+            result[key] = secondary[key]
+
+    # 价格交叉验证
+    p_price = primary.get('price')
+    s_price = secondary.get('price')
+    if p_price and s_price:
+        diff_pct = abs(p_price - s_price) / s_price * 100
+        if diff_pct > 5:
+            result['price_warning'] = (
+                f"⚠️ 数据源价格差异 {diff_pct:.1f}%: "
+                f"{primary.get('data_source', 'primary')}={p_price}, "
+                f"{secondary.get('data_source', 'secondary')}={s_price}。"
+                f"已采用 {primary.get('data_source', 'primary')} 数据。"
+            )
+        else:
+            result['price_warning'] = None
+
+    # PE 交叉验证
+    p_pe = primary.get('pe_ratio')
+    s_pe = secondary.get('pe_ratio')
+    if p_pe and s_pe and isinstance(p_pe, (int, float)) and isinstance(s_pe, (int, float)):
+        pe_diff = abs(p_pe - s_pe) / s_pe * 100
+        if pe_diff > 10:
+            result['pe_warning'] = (
+                f"⚠️ 数据源 PE 差异 {pe_diff:.1f}%: "
+                f"{primary.get('data_source', 'primary')}={p_pe}, "
+                f"{secondary.get('data_source', 'secondary')}={s_pe}"
+            )
+
+    return result
+
+
 def enrich_with_yahoo(entity: str) -> dict[str, Any]:
-    """通过 yfinance 获取估值数据。
+    """获取估值数据。A/HK 股优先 NeoData + yfinance 交叉验证；美股用 yfinance。
 
     Args:
         entity: 公司名称或股票代码
@@ -421,43 +532,62 @@ def enrich_with_yahoo(entity: str) -> dict[str, Any]:
     if not resolved:
         return {}
 
-    # 用解析到的 ticker 获取数据
+    # 判断是否为 A/HK 股 — 决定 NeoData 优先级
+    is_ahk = _is_a_hk_stock(entity)
+
+    # ── NeoData 路径（A/HK 股优先） ──
+    neodata_result = None
+    if is_ahk:
+        neodata_result = _enrich_with_neodata(entity)
+        if neodata_result and resolved:
+            neodata_result['ticker'] = resolved
+
+    # ── yfinance 路径（始终尝试，用于交叉验证或美股主力） ──
+    yf_result = None
     try:
         t = yf.Ticker(resolved)
         info = t.info
-        if not info or not info.get('regularMarketPrice'):
-            return {}
-
-        # 公司名验证：如果 entity 是中文名，且 yf 返回的公司名完全无关，则拒绝
-        company_name = info.get('shortName', info.get('longName', ''))
-        if _is_chinese(entity) and not _validate_company_match(entity, company_name, resolved):
-            # 验证失败，从缓存中删除错误映射
-            _remove_cache_entry(entity)
-            return {}
-
-        result = {
-            'ticker': resolved,
-            'company_name': company_name,
-            'price': _safe_float(info.get('regularMarketPrice') or info.get('currentPrice')),
-            'currency': info.get('currency', ''),
-            'pe_ratio': _safe_float(info.get('trailingPE') or info.get('forwardPE')),
-            'forward_pe': _safe_float(info.get('forwardPE')),
-            'ps_ratio': _safe_float(info.get('priceToSalesTrailing12Months')),
-            'pb_ratio': _safe_float(info.get('priceToBook')),
-            'market_cap': info.get('marketCap'),
-            '52w_high': _safe_float(info.get('fiftyTwoWeekHigh')),
-            '52w_low': _safe_float(info.get('fiftyTwoWeekLow')),
-            'revenue_ttm': info.get('totalRevenue'),
-            'eps': _safe_float(info.get('trailingEps')),
-            'dividend_yield': _safe_float(info.get('dividendYield')),
-            'beta': _safe_float(info.get('beta')),
-            'volume': info.get('volume'),
-            'avg_volume': info.get('averageVolume'),
-            'updated_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-        }
-        return result
-
+        if info and info.get('regularMarketPrice'):
+            # 公司名验证
+            company_name = info.get('shortName', info.get('longName', ''))
+            if _is_chinese(entity) and not _validate_company_match(entity, company_name, resolved):
+                _remove_cache_entry(entity)
+            else:
+                yf_result = {
+                    'ticker': resolved,
+                    'company_name': company_name,
+                    'price': _safe_float(info.get('regularMarketPrice') or info.get('currentPrice')),
+                    'currency': info.get('currency', ''),
+                    'pe_ratio': _safe_float(info.get('trailingPE') or info.get('forwardPE')),
+                    'forward_pe': _safe_float(info.get('forwardPE')),
+                    'ps_ratio': _safe_float(info.get('priceToSalesTrailing12Months')),
+                    'pb_ratio': _safe_float(info.get('priceToBook')),
+                    'market_cap': info.get('marketCap'),
+                    '52w_high': _safe_float(info.get('fiftyTwoWeekHigh')),
+                    '52w_low': _safe_float(info.get('fiftyTwoWeekLow')),
+                    'revenue_ttm': info.get('totalRevenue'),
+                    'eps': _safe_float(info.get('trailingEps')),
+                    'dividend_yield': _safe_float(info.get('dividendYield')),
+                    'beta': _safe_float(info.get('beta')),
+                    'volume': info.get('volume'),
+                    'avg_volume': info.get('averageVolume'),
+                    'updated_at': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'data_source': 'yfinance',
+                }
     except Exception:
+        pass
+
+    # ── 合并结果 ──
+    if is_ahk and neodata_result and yf_result:
+        # A/HK 股：NeoData 主力 + yfinance 交叉验证
+        return _cross_validate(neodata_result, yf_result, entity)
+    elif is_ahk and neodata_result:
+        return neodata_result
+    elif yf_result:
+        return yf_result
+    elif neodata_result:
+        return neodata_result
+    else:
         return {}
 
 

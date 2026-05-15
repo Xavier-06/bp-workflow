@@ -2,9 +2,9 @@
   "meta": {
     "version": 4,
     "created_at": "2026-03-17T15:15:00",
-    "updated_at": "2026-05-11T14:10:00",
+    "updated_at": "2026-05-15T13:30:00",
     "source": "notes/investment-research-agent-roles.md",
-    "changelog": "v5 (2026-05-11): 重新集成NeoData金融搜索为search_gateway Layer 0；A/HK股数据源优先级：NeoData→yfinance(交叉验证)→web_search；valuation_enricher双源估值+差异>5%自动警告；Coordinator phase0加NeoData token预检；所有step补搜工具优先级更新"
+    "changelog": "v6 (2026-05-15): 新增技术分析Agent(step0_tech)和宏观分析Agent(step_macro)，对齐牛津论文7-Agent架构"
   },
   "roles": [
     {
@@ -56,6 +56,16 @@
       "key": "投研_主笔_移交说明",
       "name": "移交说明 Agent",
       "file": "投研_主笔_移交说明.md"
+    },
+    {
+      "key": "投研_主笔_技术分析",
+      "name": "技术分析 Agent",
+      "file": "投研_主笔_技术分析.md"
+    },
+    {
+      "key": "投研_主笔_宏观分析",
+      "name": "宏观分析 Agent",
+      "file": "投研_主笔_宏观分析.md"
     },
     {
       "key": "投研_主笔_文档汇总",

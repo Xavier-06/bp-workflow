@@ -37,12 +37,15 @@ manifest 包含：task_id, step, role, entity, query, market, system_prompt, bri
 
 | Step | 角色指令文件 |
 |------|------------|
+| step0_tech | `{INSTRUCTION_STORE}/投研_主笔_技术分析.md` |
 | step1_data | `{INSTRUCTION_STORE}/投研_主笔_数据收集.md` |
 | step2_industry | `{INSTRUCTION_STORE}/投研_主笔_行业分析.md` |
 | step3_biz | `{INSTRUCTION_STORE}/投研_主笔_商业模式.md` |
 | step4_finance | `{INSTRUCTION_STORE}/投研_主笔_财务分析.md` |
 | step5_mgmt | `{INSTRUCTION_STORE}/投研_主笔_管理层.md` |
+| step_macro | `{INSTRUCTION_STORE}/投研_主笔_宏观分析.md` |
 | step6_insight | `{INSTRUCTION_STORE}/投研_主笔_差异化洞察.md` |
+| step6b_valuation | `{INSTRUCTION_STORE}/投研_主笔_预测与估值.md` |
 | step7_risk | `{INSTRUCTION_STORE}/投研_主笔_风险催化.md` |
 | step8_master | `{INSTRUCTION_STORE}/投研_主笔_文档汇总.md` |
 
@@ -57,11 +60,27 @@ manifest 包含：task_id, step, role, entity, query, market, system_prompt, bri
 ### 5. 读取前序 step 输出
 
 **IR Step 依赖关系**：
+- step0_tech、step_macro 无前序依赖（独立执行）
 - step2/3/4/5 依赖 step1
-- step6 依赖 step1 + step2 + step3
-- step7 依赖 step1 + step3 + step4
+- step6b_valuation 依赖 step1 + step2 + step4
+- step6 依赖 step0_tech + step1 + step2 + step3 + step6b_valuation
+- step7 依赖 step1 + step3 + step4 + step6b_valuation
+- step8 依赖所有前序 step
 
 前序输出路径：`{IR_RUNTIME}/data/tasks/{TASK_ID}-{dep_step}.md`
+
+### 5. 读取预计算数据（Phase 1.2 输出）
+
+预计算引擎在管线早期自动运行，输出结构化数据供特定 step 使用。**如果你的 step 有对应的预计算数据，必须优先读取**，基于预计算结果展开分析，只对预计算不足的部分补充搜索。
+
+| Step | 预计算数据 | 路径 |
+|------|----------|------|
+| step0_tech | 技术指标 | `{IR_RUNTIME}/data/tasks/{TASK_ID}_precompute_technical_indicators.json` |
+| step4_finance | 财务指标 | `{IR_RUNTIME}/data/tasks/{TASK_ID}_precompute_financial_metrics.json` |
+| step6b_valuation | 财务指标 + 行业对标 | `{TASK_ID}_precompute_financial_metrics.json` + `{TASK_ID}_precompute_sector_benchmarks.json` |
+| step2_industry | 行业对标 | `{IR_RUNTIME}/data/tasks/{TASK_ID}_precompute_sector_benchmarks.json` |
+
+Markdown 格式（方便阅读）同路径 `.md` 后缀。
 
 ### 6. 数据采集
 

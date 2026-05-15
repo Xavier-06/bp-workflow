@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -100,23 +102,41 @@ def _run_preflight(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
 
 
 def _run_company_verify(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
-    from scripts.ir_company_verify import run as run_company_verify
-
-    result = run_company_verify(
-        task_id=job_ctx.job_id,
-        entity=job_ctx.entity,
-        market=job_ctx.market,
-    )
-    return {
-        "ok": "error" not in result,
-        "mode": "legacy_wrapped",
-        "phase": "phase05_company_verify",
-        "job_id": job_ctx.job_id,
-        "result": result,
-    }
+    if os.environ.get("IRBP_BG_CHILD") == "1":
+        from scripts.ir_company_verify import run as run_company_verify
+        result = run_company_verify(
+            task_id=job_ctx.job_id,
+            entity=job_ctx.entity,
+            market=job_ctx.market,
+        )
+        return {
+            "ok": "error" not in result,
+            "mode": "legacy_wrapped",
+            "phase": "phase05_company_verify",
+            "job_id": job_ctx.job_id,
+            "result": result,
+        }
+    from scripts.heavy_phase_bg import check_cached_result, launch_heavy_phase
+    cached = check_cached_result(runtime_root, job_ctx.job_id, "phase05_company_verify")
+    if cached is not None:
+        print(f"  📦 [ir] 使用缓存的 company_verify 结果", flush=True)
+        return cached
+    return launch_heavy_phase(runtime_root, job_ctx, "phase05_company_verify", pipeline="ir")
 
 
 def _run_presearch(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
+    if os.environ.get("IRBP_BG_CHILD") == "1":
+        return _run_presearch_inner(runtime_root, job_ctx)
+    from scripts.heavy_phase_bg import check_cached_result, launch_heavy_phase
+    cached = check_cached_result(runtime_root, job_ctx.job_id, "phase1_presearch")
+    if cached is not None:
+        print(f"  📦 [ir] 使用缓存的 presearch 结果", flush=True)
+        return cached
+    return launch_heavy_phase(runtime_root, job_ctx, "phase1_presearch", pipeline="ir")
+
+
+def _run_presearch_inner(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
+    """presearch 实际执行逻辑（子进程内直接调用）"""
     from scripts.ir_presearch import run_presearch
 
     metadata = job_ctx.metadata or {}
@@ -194,6 +214,146 @@ def _run_extract(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
             "agg_events": result.get("agg_events", []),
             "agg_risks": result.get("agg_risks", []),
             "agg_valuation_views": result.get("agg_valuation_views", []),
+        },
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# Phase 1.2: Precompute — 三大预计算引擎（财务指标/技术指标/行业对标）
+# ═══════════════════════════════════════════════════════════
+
+def _run_precompute(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
+    """Phase 1.2: 运行三大预计算引擎（财务指标 / 技术指标 / 行业对标）。
+
+    输出写入 data/tasks/ 供子代理（step0_tech/step4_finance/step6b_valuation 等）使用。
+    预计算引擎需要股票代码（ticker），如果 metadata 没有则尝试解析。
+    """
+    import subprocess
+
+    metadata = job_ctx.metadata or {}
+    ticker = metadata.get("ticker", "")
+    market = metadata.get("market", job_ctx.market)
+
+    # 如果没有 ticker，尝试解析
+    if not ticker:
+        try:
+            from tasks.valuation_enricher import _resolve_ticker
+            ticker = _resolve_ticker(job_ctx.entity)
+            if ticker:
+                print(f"  🔍 [precompute] 自动解析 ticker: {job_ctx.entity} → {ticker}", flush=True)
+        except Exception:
+            pass
+
+    precompute_results: dict[str, Any] = {}
+    all_ok = True
+    errors: list[str] = []
+
+    tasks_dir = runtime_root / "data" / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+
+    # 三个预计算引擎
+    engines = {
+        "financial_metrics": runtime_root / "scripts" / "financial_metrics_precompute.py",
+        "technical_indicators": runtime_root / "scripts" / "technical_indicators.py",
+        "sector_benchmarks": runtime_root / "scripts" / "sector_benchmarks.py",
+    }
+
+    for engine_name, script_path in engines.items():
+        if not script_path.exists():
+            errors.append(f"{engine_name}: script not found at {script_path}")
+            all_ok = False
+            continue
+
+        try:
+            # 没有 ticker 时跳过需要 ticker 的引擎
+            if not ticker:
+                precompute_results[engine_name] = {"status": "skipped", "reason": "no ticker available"}
+                print(f"  ⚠️  [precompute] {engine_name}: 无 ticker，跳过", flush=True)
+                continue
+
+            print(f"  🔢 [precompute] 运行 {engine_name}...", flush=True)
+            r = subprocess.run(
+                ["python3", str(script_path), ticker, "--json"],
+                capture_output=True, text=True, timeout=120,
+            )
+
+            if r.returncode != 0:
+                error_msg = f"{engine_name}: exit {r.returncode}, stderr: {(r.stderr or '')[:200]}"
+                errors.append(error_msg)
+                print(f"  ⚠️  [precompute] {error_msg}", flush=True)
+                precompute_results[engine_name] = {
+                    "status": "error",
+                    "error": error_msg,
+                    "stdout": (r.stdout or "")[:500],
+                }
+                all_ok = False
+                continue
+
+            # 解析 JSON 输出
+            try:
+                output_data = json.loads(r.stdout.strip())
+            except json.JSONDecodeError:
+                output_data = {"raw": r.stdout.strip()}
+
+            # 保存 JSON 输出到 data/tasks/
+            output_file = tasks_dir / f"{job_ctx.job_id}_precompute_{engine_name}.json"
+            output_file.write_text(
+                json.dumps(output_data, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+            # 同时保存 markdown 版本（可选，方便子代理阅读）
+            try:
+                r_md = subprocess.run(
+                    ["python3", str(script_path), ticker, "--markdown"],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if r_md.returncode == 0:
+                    md_file = tasks_dir / f"{job_ctx.job_id}_precompute_{engine_name}.md"
+                    md_file.write_text(r_md.stdout, encoding="utf-8")
+            except Exception:
+                pass  # markdown 是可选的
+
+            precompute_results[engine_name] = {
+                "status": "ok",
+                "output_file": str(output_file),
+                "data": output_data,
+            }
+            print(f"  ✅ [precompute] {engine_name} 完成 → {output_file.name}", flush=True)
+
+        except subprocess.TimeoutExpired:
+            errors.append(f"{engine_name}: timeout (120s)")
+            precompute_results[engine_name] = {"status": "timeout"}
+            all_ok = False
+        except Exception as e:
+            errors.append(f"{engine_name}: {e}")
+            precompute_results[engine_name] = {"status": "error", "error": str(e)}
+            all_ok = False
+
+    # 同步到 workspace outputs
+    ws = _workspace_for(job_ctx)
+    if ws is not None:
+        try:
+            for engine_name in engines:
+                src = tasks_dir / f"{job_ctx.job_id}_precompute_{engine_name}.json"
+                if src.exists():
+                    shutil.copy2(src, ws.outputs_dir / f"precompute_{engine_name}.json")
+                src_md = tasks_dir / f"{job_ctx.job_id}_precompute_{engine_name}.md"
+                if src_md.exists():
+                    shutil.copy2(src_md, ws.outputs_dir / f"precompute_{engine_name}.md")
+        except Exception:
+            pass
+
+    return {
+        "ok": all_ok,
+        "mode": "precompute",
+        "phase": "phase12_precompute",
+        "job_id": job_ctx.job_id,
+        "result": {
+            "ticker": ticker,
+            "market": market,
+            "engines": precompute_results,
+            "errors": errors,
+            "output_dir": str(tasks_dir),
         },
     }
 
@@ -341,7 +501,18 @@ def _run_dispatch_collect(runtime_root: Path, job_ctx: JobContext) -> dict[str, 
 # ═══════════════════════════════════════════════════════════
 
 def _run_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
-    """Phase 5: 对抗验证 + 审计 + DOCX + 交付。
+    if os.environ.get("IRBP_BG_CHILD") == "1":
+        return _run_delivery_inner(runtime_root, job_ctx)
+    from scripts.heavy_phase_bg import check_cached_result, launch_heavy_phase
+    cached = check_cached_result(runtime_root, job_ctx.job_id, "phase5_delivery")
+    if cached is not None:
+        print(f"  📦 [ir] 使用缓存的 delivery 结果", flush=True)
+        return cached
+    return launch_heavy_phase(runtime_root, job_ctx, "phase5_delivery", pipeline="ir")
+
+
+def _run_delivery_inner(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
+    """Phase 5: 对抗验证 + 审计 + DOCX + 交付（子进程内直接调用）。
 
     All artifacts are synced to workspace.delivery_dir.
     Legacy paths remain intact.
@@ -449,14 +620,12 @@ def _run_delivery(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
                         [python314, notify_script, "--file", str(docx_path), caption],
                         capture_output=True, text=True, cwd=str(runtime_root), timeout=120,
                     )
-                    result = {}
                     if r.returncode == 0 and r.stdout.strip():
                         import json as _json
                         result = _json.loads(r.stdout.strip())
                         delivery_ok = result.get("ok", False)
                     else:
-                        result = {"ok": False, "msg": f"exit={r.returncode} stderr={r.stderr[:200]}"}
-                        delivery_error = result["msg"]
+                        delivery_error = f"exit={r.returncode} stderr={r.stderr[:200]}"
                     if delivery_ok:
                         break
                     delivery_error = result.get("msg", "未知错误") if r.returncode == 0 else delivery_error
@@ -514,6 +683,7 @@ class IRProfile(PipelineProfile):
                 "phase05_company_verify": lambda job_ctx: _run_company_verify(runtime_root, job_ctx),
                 "phase1_presearch": lambda job_ctx: _run_presearch(runtime_root, job_ctx),
                 "phase15_extract": lambda job_ctx: _run_extract(runtime_root, job_ctx),
+                "phase12_precompute": lambda job_ctx: _run_precompute(runtime_root, job_ctx),
                 "phase4_dispatch_prepare": lambda job_ctx: _run_dispatch_prepare(runtime_root, job_ctx),
                 "phase4_dispatch_collect": lambda job_ctx: _run_dispatch_collect(runtime_root, job_ctx),
                 "phase5_delivery": lambda job_ctx: _run_delivery(runtime_root, job_ctx),
