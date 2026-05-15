@@ -135,7 +135,7 @@ def check_environment():
     }
 
     # 4. 子模块
-    sub_modules = ['research', 'content', 'search', 'routing', 'sources', 'memory', 'memory_agent', 'instruction_store']
+    sub_modules = ['research', 'content', 'search', 'routing', 'sources', 'memory', 'memory_agent', 'instruction_store_ir', 'instruction_store_bp']
     missing_mods = [m for m in sub_modules if not (ROOT / m).exists()]
     results['checks']['sub_modules'] = {
         'ok': len(missing_mods) == 0,

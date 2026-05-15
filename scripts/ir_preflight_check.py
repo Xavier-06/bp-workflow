@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TASKS_DIR = ROOT / 'data' / 'tasks'
 IR_RUNTIME = ROOT / 'config' / 'ir-runtime.json'
-INSTRUCTION_INDEX = ROOT / 'instruction_store' / 'index.json'
+INSTRUCTION_INDEX = ROOT / 'instruction_store_ir' / 'index.json'
 TASK_LEDGER = TASKS_DIR / 'tasks.json'
 
 # Minimum subagent team for 专题研究类
@@ -104,7 +104,7 @@ def check_thinking_policy() -> dict:
 
 
 def check_instruction_store() -> dict:
-    """instruction_store/index.json must exist with enough roles."""
+    """instruction_store_ir/index.json must exist with enough roles."""
     data = load_json(INSTRUCTION_INDEX, {})
     roles = data.get('roles', [])
     keys = [r.get('key') for r in roles]
@@ -128,7 +128,7 @@ def build_roster(task_id: str, entity: str = '') -> list[dict]:
         step = ROLE_STEP_MAP.get(key)
         if not step:
             continue  # skip 投研_主管 etc. (orchestrator, not a subagent)
-        instruction_file = ROOT / 'instruction_store' / role.get('file', '')
+        instruction_file = ROOT / 'instruction_store_ir' / role.get('file', '')
         roster.append({
             'role_key': key,
             'role_name': role.get('name', ''),
@@ -188,7 +188,7 @@ def ensure_task_package(task_id: str, entity: str = '', query: str = '', market:
     # Read instruction content
     instructions = []
     for role in index.get('roles', []):
-        filepath = ROOT / 'instruction_store' / role.get('file', '')
+        filepath = ROOT / 'instruction_store_ir' / role.get('file', '')
         if filepath.exists():
             instructions.append({
                 'key': role.get('key'),

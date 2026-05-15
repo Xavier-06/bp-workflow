@@ -16,13 +16,15 @@
 │ Phase 0.5: 公司验证+估值   │ Phase 0.5: 工商/风险验证             │
 │ Phase 1:  8步预搜索       │ Phase 1:  4维度预搜索+URL提取         │
 │ Phase 1.5: URL内容提取     │ Phase 2:  4维度并行分析(Wave1)       │
-│ Phase 4:  4波子代理派发    │ Phase 2.5: 竞争与结论(Wave2)         │
-│   Wave1: 数据收集         │ Phase 3:  统稿+验证+DOCX交付         │
-│   Wave2: 行业/商业/财务/管理│                                      │
-│   Wave3: 洞察/风险/估值    │                                      │
-│   Wave4: 统稿             │                                      │
-│ Phase 5:  对抗验证+DOCX   │                                      │
-│           +桌面+微信通知    │                                      │
+│ Phase 12: 三引擎预计算     │ Phase 2.5: 竞争与结论(Wave2)         │
+│ Phase 4:  5波子代理派发    │ Phase 3:  统稿+验证+DOCX交付         │
+│   Wave1: 技术/数据采集     │                                      │
+│   Wave2: 行业/商业/财务/管理/宏观│                                   │
+│   Wave3: 估值              │                                      │
+│   Wave4: 洞察/风险          │                                      │
+│   Wave5: 统稿(11-Agent)    │                                      │
+│ Phase 5:  对抗验证+三层     │                                      │
+│   架构+DOCX+桌面+微信通知  │                                      │
 └──────────────────────────┴──────────────────────────────────────┘
          ↓ 交付 ↓
    📊 券商级研报 / DD尽调报告 (DOCX) → 桌面 + 微信通知
@@ -56,7 +58,7 @@ ir-bp-workflow/
 │   ├── entrypoints/             # 入口点
 │   ├── intake/                  # 输入处理
 │   └── orchestrator/            # 管线编排器
-├── scripts/                     # 功能脚本（160+）
+├── scripts/                     # 功能脚本（180+）
 │   ├── ir_subagent_launcher_wb.py   # IR 子代理发射器（含 ANTI-DEFECT RULES）
 │   ├── bp_subagent_launcher_wb.py   # BP 子代理发射器（含 ANTI-DEFECT RULES）
 │   ├── search_gateway.py            # 搜索网关 v5（含 NeoData Layer 0）
@@ -66,6 +68,23 @@ ir-bp-workflow/
 │   ├── verification_agent.py        # 6层对抗验证
 │   ├── ir_auto_orchestrator.py      # IR 全自动编排器
 │   ├── longshao_notify.py           # 微信通知
+│   │                                # ── v5 新增（牛津论文对齐）──
+│   ├── info_propagation_check.py    # 7-Agent 信息传导验证
+│   ├── sector_agent_middleware.py   # 板块代理中间件
+│   ├── sector_benchmarks.py/v2.py   # 行业基准测试（静态/动态/hybrid）
+│   ├── ensemble_runner.py           # 多策略集成执行器
+│   ├── financial_metrics_precompute.py  # 五大维度财务指标预计算
+│   ├── technical_indicators.py      # 11项技术指标预计算
+│   │                                # ── 运维工具集 ──
+│   ├── check-reminders.py/sh        # 提醒检查
+│   ├── check-skills.sh              # Skills 健康检查
+│   ├── cleanup_*.sh                 # 任务/记忆/会话清理
+│   ├── memory-cmd.sh / memory-decay.sh  # 记忆命令与老化
+│   ├── start_local_searxng.sh       # 本地 SearXNG 启动
+│   ├── watch-agent.sh               # Agent 监控
+│   ├── hkex_playwright_probe.js     # 港交所 Playwright 探针
+│   ├── tavily_search.mjs            # Tavily 搜索模块
+│   ├── load_workspace_env.sh        # 工作区环境加载
 │   └── ...
 ├── instruction_store_ir/        # IR 角色指令库 v4（11 个角色）
 ├── instruction_store_bp/        # BP 角色指令库 v4（7 个维度）
@@ -190,6 +209,63 @@ ir-coordinator 自动识别意图并启动 IR 管线。
 对话触发（推荐）：
 - "帮我看下这个 BP" + 上传文件
 - "分析一下 XX 公司的商业计划书"
+
+### CLI 管理命令
+
+`ir_runtime.py` 提供命令行管理入口，支持任务全生命周期操作：
+
+```bash
+# 环境检测
+python3 ir_runtime.py check
+
+# 创建任务
+python3 ir_runtime.py create "比亚迪" --type 专题研究类
+
+# 执行管线
+python3 ir_runtime.py run TASK-20260515-001
+
+# 重命名任务（修改标的/类型/标签）
+python3 ir_runtime.py rename TASK-20260515-001 --target "优必选" --type 快报类
+python3 ir_runtime.py rename TASK-20260515-001 --label "重点跟踪"
+
+# 查看任务状态
+python3 ir_runtime.py status TASK-20260515-001
+
+# 列出所有任务
+python3 ir_runtime.py list
+
+# 微信通知
+python3 ir_runtime.py notify "研报已完成，请查收"
+```
+
+| 命令 | 功能 | 说明 |
+|------|------|------|
+| `check` | 环境检测 | Python依赖/API凭证/搜索服务/子模块完整性 |
+| `create` | 创建任务 | 指定标的和类型（专题研究/晨报/快报/资料整理/回顾） |
+| `run` | 执行管线 | 从指定Phase开始，默认从Phase 0全自动运行 |
+| `rename` | 重命名任务 | 修改任务标的、类型或标签，自动同步到索引 |
+| `status` | 查看状态 | 显示任务当前Phase/完成率/步骤详情 |
+| `list` | 列出任务 | 按创建时间排序，显示标的/类型/状态 |
+| `notify` | 微信通知 | 通过龙少推送消息到微信 |
+
+### 运维工具集
+
+`scripts/` 目录提供完整的运维工具链，覆盖日常巡检、清理和监控：
+
+| 工具 | 用途 | 用法 |
+|------|------|------|
+| `check-reminders.sh` | 提醒检查 | `bash scripts/check-reminders.sh` |
+| `check-skills.sh` | Skills 健康检查 | `bash scripts/check-skills.sh` |
+| `cleanup_completed_tasks.sh` | 已完成任务清理 | `bash scripts/cleanup_completed_tasks.sh` |
+| `cleanup_memory.sh` | 记忆文件清理 | `bash scripts/cleanup_memory.sh` |
+| `cleanup_sessions.sh` | 会话文件清理 | `bash scripts/cleanup_sessions.sh` |
+| `memory-cmd.sh` | 记忆命令入口 | `bash scripts/memory-cmd.sh [cmd]` |
+| `memory-decay.sh` | 记忆老化处理 | `bash scripts/memory-decay.sh --days 30` |
+| `start_local_searxng.sh` | 启动本地SearXNG | `bash scripts/start_local_searxng.sh` |
+| `watch-agent.sh` | Agent运行监控 | `bash scripts/watch-agent.sh` |
+| `load_workspace_env.sh` | 环境变量加载 | `source scripts/load_workspace_env.sh` |
+| `python_ssl_env.sh` | Python SSL配置 | `source scripts/python_ssl_env.sh` |
+| `tools/patch_paths.py` | 路径修复工具 | `python3 tools/patch_paths.py --root $HOME/.workbuddy/ir_runtime` |
 
 ## 🧠 核心设计
 

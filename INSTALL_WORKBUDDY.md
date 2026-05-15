@@ -3,7 +3,8 @@
 ## 这包里有什么
 - `scripts/`：IR 主控、搜索、Gap 检测、子代理、交付脚本
 - `research/` / `content/`：研究与抓取模块
-- `instruction_store/`：研报角色指令库
+- `instruction_store_ir/`：投研角色指令库（11 个角色）
+- `instruction_store_bp/`：BP 尽调角色指令库（7 个维度）
 - `memory_agent/`：向量记忆系统代码（不含 venv / logs / 现有数据库）
 - `memory/`：桥接层 + 主题记忆 + HOT/WARM snapshot
 

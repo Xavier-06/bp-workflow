@@ -41,7 +41,7 @@
         "note": "If subagent team cannot be fully spawned, do not silently switch to single-agent execution."
       },
       "instruction_store_driven_roster": true,
-      "instruction_store_index": "instruction_store/index.json",
+      "instruction_store_index": "instruction_store_ir/index.json",
       "subagent_reasoning_policy": {
         "main_session": "/reasoning on + /thinking high",
         "subagents": "thinking=high (reasoning-equivalent policy)",

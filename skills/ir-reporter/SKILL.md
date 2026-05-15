@@ -16,7 +16,7 @@ allowed-tools:
 ## 环境常量
 
 **IR_RUNTIME**: `~/.workbuddy/ir_runtime/` (symlink → 实际管线目录)
-**INSTRUCTION_STORE**: `~/.workbuddy/ir_runtime/instruction_store/`
+**INSTRUCTION_STORE**: `~/.workbuddy/ir_runtime/instruction_store_ir/`
 
 ## 执行流程
 
