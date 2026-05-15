@@ -15,7 +15,7 @@
 │ Phase 0:  环境检测+注册    │ Phase 0:  VL OCR 文档识别            │
 │ Phase 0.5: 公司验证+估值   │ Phase 0.5: 工商/风险验证             │
 │ Phase 1:  8步预搜索       │ Phase 1:  4维度预搜索+URL提取         │
-│ Phase 1.5: URL内容提取     │ Phase 2:  3维度并行分析(Wave1)       │
+│ Phase 1.5: URL内容提取     │ Phase 2:  4维度并行分析(Wave1)       │
 │ Phase 4:  4波子代理派发    │ Phase 2.5: 竞争与结论(Wave2)         │
 │   Wave1: 数据收集         │ Phase 3:  统稿+验证+DOCX交付         │
 │   Wave2: 行业/商业/财务/管理│                                      │
