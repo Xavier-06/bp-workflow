@@ -60,16 +60,23 @@ def _get_prev(series: pd.Series, periods_back: int = 1) -> Optional[float]:
 
 
 def calc_roe(net_income: np.ndarray, equity: np.ndarray) -> Tuple[Optional[float], Optional[float]]:
-    """ROE = Net Income / Equity × 100%"""
+    """ROE = Net Income / Equity × 100%
+
+    Note: yfinance 返回的 income statement 和 balance sheet 数组长度可能不一致
+    （利润表季度数 ≠ 资产负债表季度数），取 len 较小者作为安全索引上限。
+    """
+    max_idx = min(len(net_income), len(equity)) - 1
+    if max_idx < 0:
+        return None, None
     current = None
     prev = None
-    for i in range(len(net_income) - 1, -1, -1):
+    for i in range(max_idx, -1, -1):
         val = _safe_div(net_income[i], equity[i])
         if val is not None:
             current = val * 100
             break
     if current is not None:
-        for i in range(len(net_income) - 1, 0, -1):
+        for i in range(max_idx, 0, -1):
             val = _safe_div(net_income[i - 1], equity[i - 1])
             if val is not None:
                 prev = val * 100
