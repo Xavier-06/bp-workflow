@@ -37,7 +37,6 @@ manifest 包含：task_id, step, role, entity, query, market, system_prompt, bri
 
 | Step | 角色指令文件 |
 |------|------------|
-| step0_tech | `{INSTRUCTION_STORE}/投研_主笔_技术分析.md` |
 | step1_data | `{INSTRUCTION_STORE}/投研_主笔_数据收集.md` |
 | step2_industry | `{INSTRUCTION_STORE}/投研_主笔_行业分析.md` |
 | step3_biz | `{INSTRUCTION_STORE}/投研_主笔_商业模式.md` |
@@ -60,10 +59,10 @@ manifest 包含：task_id, step, role, entity, query, market, system_prompt, bri
 ### 5. 读取前序 step 输出
 
 **IR Step 依赖关系**：
-- step0_tech、step_macro 无前序依赖（独立执行）
+- step1_data、step_macro 无前序依赖（独立执行）
 - step2/3/4/5 依赖 step1
 - step6b_valuation 依赖 step1 + step2 + step4
-- step6 依赖 step0_tech + step1 + step2 + step3 + step6b_valuation
+- step6 依赖 step1 + step2 + step3 + step6b_valuation
 - step7 依赖 step1 + step3 + step4 + step6b_valuation
 - step8 依赖所有前序 step
 
@@ -75,7 +74,6 @@ manifest 包含：task_id, step, role, entity, query, market, system_prompt, bri
 
 | Step | 预计算数据 | 路径 |
 |------|----------|------|
-| step0_tech | 技术指标 | `{IR_RUNTIME}/data/tasks/{TASK_ID}_precompute_technical_indicators.json` |
 | step4_finance | 财务指标 | `{IR_RUNTIME}/data/tasks/{TASK_ID}_precompute_financial_metrics.json` |
 | step6b_valuation | 财务指标 + 行业对标 | `{TASK_ID}_precompute_financial_metrics.json` + `{TASK_ID}_precompute_sector_benchmarks.json` |
 | step2_industry | 行业对标 | `{IR_RUNTIME}/data/tasks/{TASK_ID}_precompute_sector_benchmarks.json` |

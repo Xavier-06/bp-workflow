@@ -38,7 +38,6 @@ STEP_QUALITY_THRESHOLD = 3
 
 # Step 角色名
 STEP_ROLE = {
-    'step0_tech': '投研_主笔_技术分析',
     'step1_data': '投研_主笔_数据收集',
     'step2_industry': '投研_主笔_行业分析',
     'step3_biz': '投研_主笔_商业模式',
@@ -53,22 +52,21 @@ STEP_ROLE = {
 
 # 步间依赖关系
 STEP_DEPS = {
-    'step0_tech': [],
     'step1_data': [],
     'step2_industry': ['step1_data'],
     'step3_biz': ['step1_data'],
     'step4_finance': ['step1_data'],
     'step5_mgmt': ['step1_data'],
     'step_macro': [],
-    'step6_insight': ['step1_data', 'step2_industry', 'step3_biz', 'step0_tech', 'step6b_valuation'],
+    'step6_insight': ['step1_data', 'step2_industry', 'step3_biz', 'step6b_valuation'],
     'step6b_valuation': ['step1_data', 'step2_industry', 'step4_finance'],
     'step7_risk': ['step1_data', 'step3_biz', 'step4_finance', 'step6b_valuation'],
-    'step8_master': ['step0_tech', 'step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step_macro', 'step6_insight', 'step6b_valuation', 'step7_risk'],
+    'step8_master': ['step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step_macro', 'step6_insight', 'step6b_valuation', 'step7_risk'],
 }
 
 # 并行发射波次
 LAUNCH_WAVES = [
-    ['step0_tech', 'step1_data'],
+    ['step1_data'],
     ['step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step_macro'],
     ['step6b_valuation'],
     ['step6_insight', 'step7_risk'],
@@ -77,7 +75,6 @@ LAUNCH_WAVES = [
 
 # 超时
 STEP_TIMEOUTS = {
-    'step0_tech': 600,
     'step1_data': 900,
     'step2_industry': 900,
     'step3_biz': 900,
@@ -92,7 +89,6 @@ STEP_TIMEOUTS = {
 
 # Step 查询关键词（用于自动补搜）
 _STEP_KEYWORDS = {
-    'step0_tech': 'technical analysis RSI MACD KDJ Bollinger momentum price action chart pattern 技术分析 指标 量价',
     'step1_data': 'stock price market cap PE ratio EPS dividend analyst rating 市值 股价 市盈率',
     'step2_industry': 'industry market size market share growth rate TAM penetration competitive landscape 行业规模 竞争格局',
     'step3_biz': 'business model product revenue customer supply chain 商业模式 产品线 客户 收入结构',
@@ -106,11 +102,6 @@ _STEP_KEYWORDS = {
 }
 
 _STEP_QUERY_TEMPLATES = {
-    'step0_tech': [
-        '"{entity}" technical analysis price momentum indicators',
-        '"{entity}" stock chart pattern RSI MACD',
-        '"{entity}" 技术分析 量价 走势',
-    ],
     'step1_data': [
         '"{entity}" stock price market cap PE EPS analyst rating',
         '"{entity}" investor relations results announcement',
@@ -218,7 +209,6 @@ def deps_ready(task_id: str, step: str) -> tuple[bool, list[str]]:
 def load_instruction(role_key: str) -> str:
     """加载角色指令（instruction_store）"""
     instruction_map = {
-        'step0_tech': '投研_主笔_技术分析',
         'step1_data': '投研_主笔_数据收集',
         'step2_industry': '投研_主笔_行业分析',
         'step3_biz': '投研_主笔_商业模式',
@@ -435,20 +425,6 @@ def build_step_prompt(step: str, entity: str, market: str = 'us') -> str:
             'or shelved. Search "{regulation} 最新 现行 有效 {year}" before citing.\n'
             '2. COMPETITOR COMPLIANCE EVENTS: For competition-related risks, search whether major competitors '
             'have recent regulatory penalties — this may reduce competitive pressure on the target.\n'
-        ),
-        'step0_tech': (
-            'ANTI-DEFECT RULES:\n'
-            '1. INDICATOR DATA SOURCE: Prefer pre-calculated indicators from step1_data output\'s '
-            '"Technical Indicators Summary" table. If missing or N/A, compute indicators yourself '
-            'using yfinance to pull historical price data (yfinance → compute RSI/MACD/KDJ/RoC/BB). '
-            'ALWAYS check data availability before proceeding.\n'
-            '2. CROSS-INDICATOR CONSISTENCY: Before finalizing scores, verify that at least 2 indicators '
-            'per layer (short/medium/long) agree on direction. If only 1 indicator is available for a layer, '
-            'mark confidence as "low" and note the limitation.\n'
-            '3. NO FUNDAMENTAL LEAKAGE: The output must NOT contain ANY fundamental metrics (PE, ROE, '
-            'revenue, profit margin, EPS). If you need to mention price levels, use only % change values.\n'
-            '4. NO TRADING ADVICE: Output must contain analysis scores and trend assessment only. '
-            'NEVER write "买入/卖出/看涨/看跌" or equivalent directional trading recommendations.\n'
         ),
         'step_macro': (
             'ANTI-DEFECT RULES:\n'
@@ -977,8 +953,7 @@ def launch_next_wave(task_id: str, entity: str = '', query: str = '', market: st
 
     # 构建主 AI 的精确执行指令
     # step8_master 的前序 step 列表（需要读取它们的完整输出）
-    # 2026-05-15: 补入 step0_tech（技术分析）和 step_macro（宏观分析），对齐牛津论文 7-Agent 架构
-    _STEP8_PRIOR_STEPS = ['step0_tech', 'step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step_macro', 'step6_insight', 'step6b_valuation', 'step7_risk']
+    _STEP8_PRIOR_STEPS = ['step1_data', 'step2_industry', 'step3_biz', 'step4_finance', 'step5_mgmt', 'step_macro', 'step6_insight', 'step6b_valuation', 'step7_risk']
 
     task_instructions = []
     for r in dispatched:
@@ -1022,8 +997,8 @@ def launch_next_wave(task_id: str, entity: str = '', query: str = '', market: st
         if step == 'step8_master':
             prompt_body += (
                 f'2. 逐一读取上方列出的前序 step 完整输出文件\n'
-                f'3. 根据 brief 中的统稿规则，将 step0_tech~step7 的内容汇总为一份完整研报\n'
-                f'   （step0_tech 技术分析结论、step_macro 宏观判断需纳入投资摘要和风险章节）\n'
+                f'3. 根据 brief 中的统稿规则，将 step1~step7 的内容汇总为一份完整研报\n'
+                f'   （step_macro 宏观判断需纳入投资摘要和风险章节）\n'
                 f'4. 如发现数据缺口或矛盾，用 web_search 补搜验证（最多 3 轮）\n'
                 f'5. 将完整 Markdown 报告写入上方指定的输出路径\n\n'
             )
@@ -1099,7 +1074,7 @@ def finalize_pipeline(task_id: str, entity: str = '', market: str = 'us') -> dic
         _OFFICIAL = ['sec.gov','hkexnews.hk','cninfo.com.cn','szse.cn','sse.com.cn','ir.','investor.']
         _REPUTABLE = ['reuters.com','bloomberg.com','wsj.com','ft.com','economist.com','scmp.com','caixin.com','36kr.com','cls.cn','eastmoney.com','xueqiu.com']
         _REDFLAGS = ['待补','待填','TODO','无法验证','无法获取','需要进一步']
-        _STEP_ORDER = ['step0_tech','step1_data','step2_industry','step3_biz','step4_finance','step5_mgmt','step_macro','step6_insight','step6b_valuation','step7_risk','step8_master']
+        _STEP_ORDER = ['step1_data','step2_industry','step3_biz','step4_finance','step5_mgmt','step_macro','step6_insight','step6b_valuation','step7_risk','step8_master']
         scores, issues = {}, []
         for step in _STEP_ORDER:
             f = TASKS_DIR / f'{task_id}-{step}.md'

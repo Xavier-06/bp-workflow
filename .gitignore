@@ -59,6 +59,12 @@ search/cache/
 *.tmp
 *.bak
 
+# CodeGraph
+.codegraph/
+
+# Logs
+.logs/
+
 # Runtime search result files (text_*.json)
 text_*.json
 

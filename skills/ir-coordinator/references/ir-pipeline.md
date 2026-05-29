@@ -5,9 +5,9 @@
 ```
 phase0_preflight          — 环境检测 + 任务注册 + NeoData token 预检
 phase05_company_verify    — 公司验证 + 估值数据 (NeoData优先 + yfinance交叉验证)
-phase1_presearch          — 11 step 预搜索 (NeoData Layer 0 + SearchGateway/SearXNG) — 牛津论文 7-Agent 扩展
+phase1_presearch          — 10 step 预搜索 (NeoData Layer 0 + SearchGateway/SearXNG)
 phase15_extract           — URL 内容提取 (Scrapling 三层递进)
-phase12_precompute        — 三大预计算引擎: financial_metrics + technical_indicators + sector_benchmarks
+phase12_precompute        — 预计算引擎: financial_metrics + sector_benchmarks
 │   └── 输出写入 data/tasks/{TASK_ID}_precompute_{engine}.json 供子代理使用
 phase4_dispatch_prepare   — launch_next_wave() 发射第一个 wave，返回 needs_dispatch
 │   └── kernel 暂停，coordinator 循环 launch_next_wave() 推进所有 wave
@@ -45,11 +45,10 @@ cd ~/.workbuddy/ir_runtime && python3 -m runtime.orchestrator.pipeline_orchestra
 
 ## Wave 编排
 
-> **架构对齐**：牛津论文 7-Agent 投研框架（基本面+技术面+资金面+行业面+预测面+风险面+总控），
-> 扩展为 11-Agent 实战管线：step0_tech（技术面）+ step_macro（宏观面）+ step6b_valuation（估值面）。
+> **架构对齐**：10-Agent 实战管线：step_macro（宏观面）+ step6b_valuation（估值面）等。
 
 ```
-Wave 1: step0_tech, step1_data                        (并行)
+Wave 1: step1_data                                      (串行)
 Wave 2: step2_industry, step3_biz, step4_finance, step5_mgmt, step_macro  (并行)
 Wave 3: step6b_valuation                               (串行)
 Wave 4: step6_insight, step7_risk                      (并行)
@@ -61,11 +60,11 @@ Phase 5: finalize_pipeline() → 质检 → DOCX → 桌面 → 微信通知
 
 | 波次 | Steps | 依赖 | 预估时间 |
 |------|-------|------|---------|
-| Wave 1 | step0_tech, step1_data | 无 | 10-25 分钟 |
+| Wave 1 | step1_data | 无 | 10-25 分钟 |
 | Wave 2 | step2_industry, step3_biz, step4_finance, step5_mgmt, step_macro | 无 (独立) | 每个 15-25 分钟 |
 | Wave 3 | step6b_valuation | step1+4 | 15-25 分钟 |
-| Wave 4 | step6_insight, step7_risk | step0_tech+1+2+3 / step1+3+4 | 每个 15-25 分钟 |
-| Wave 5 | step8_master | step0_tech~step7_risk | 20-30 分钟 |
+| Wave 4 | step6_insight, step7_risk | step1+2+3 / step1+3+4 | 每个 15-25 分钟 |
+| Wave 5 | step8_master | step1~step7_risk | 20-30 分钟 |
 
 ## 预计算数据（Phase 1.2 输出）
 
@@ -74,7 +73,6 @@ Phase 5: finalize_pipeline() → 质检 → DOCX → 桌面 → 微信通知
 | 引擎 | 输出文件 | 使用者 |
 |------|---------|--------|
 | financial_metrics | `{TASK_ID}_precompute_financial_metrics.json/.md` | step4_finance, step6b_valuation |
-| technical_indicators | `{TASK_ID}_precompute_technical_indicators.json/.md` | step0_tech |
 | sector_benchmarks | `{TASK_ID}_precompute_sector_benchmarks.json/.md` | step2_industry, step6_insight |
 
 **子代理使用方式**：
@@ -83,7 +81,7 @@ Phase 5: finalize_pipeline() → 质检 → DOCX → 桌面 → 微信通知
 cat {IR_RUNTIME}/data/tasks/{TASK_ID}_precompute_financial_metrics.json | python3 -m json.tool
 
 # 或读取 markdown 格式（方便人类阅读）
-cat {IR_RUNTIME}/data/tasks/{TASK_ID}_precompute_technical_indicators.md
+cat {IR_RUNTIME}/data/tasks/{TASK_ID}_precompute_financial_metrics.md
 ```
 
 子代理 step brief 中会包含预计算数据路径，子代理应优先读取预计算数据，再根据需要补充搜索。
@@ -174,7 +172,7 @@ result = finalize_pipeline(task_id, entity, market)
 
 ## Wave 5 step8_master 统稿硬约束
 
-- 读取 step0_tech~step7_risk 全部输出，汇总为券商风格完整研报（投资摘要→技术面→行业→商业模式→财务估值→管理层→宏观→差异化洞察→风险催化剂→来源附录）
+- 读取 step1~step7_risk 全部输出，汇总为券商风格完整研报（投资摘要→行业→商业模式→财务估值→管理层→宏观→差异化洞察→风险催化剂→来源附录）
 - **脚注硬规则**：正文每个关键数据点都要有脚注标注，末尾"来源附录"展开完整引用
 - **跨章节数据一致性**：同一指标在不同章节出现时数字必须一致，以有明确来源的为准
 - **算术验算**：PE×EPS≈股价、市值=股价×总股本等关键算术必须自验

@@ -74,7 +74,6 @@ ir-bp-workflow/
 │   ├── sector_benchmarks.py/v2.py   # 行业基准测试（静态/动态/hybrid）
 │   ├── ensemble_runner.py           # 多策略集成执行器
 │   ├── financial_metrics_precompute.py  # 五大维度财务指标预计算
-│   ├── technical_indicators.py      # 11项技术指标预计算
 │   │                                # ── 运维工具集 ──
 │   ├── check-reminders.py/sh        # 提醒检查
 │   ├── check-skills.sh              # Skills 健康检查

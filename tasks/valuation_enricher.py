@@ -429,8 +429,11 @@ def _is_a_hk_stock(entity: str) -> bool:
     return False
 
 
-def _enrich_with_neodata(entity: str) -> Optional[dict[str, Any]]:
+def _enrich_with_neodata(entity: str, resolved_ticker: str = '') -> Optional[dict[str, Any]]:
     """通过 NeoData 获取 A/HK 股估值数据。
+
+    优先使用 resolved_ticker（如 1810.HK）查询，避免 NeoData 内部将中文名
+    错误解析为美股 OTC 代码（如 XIACF.US）。fallback 到 entity 原始名。
 
     返回与 yfinance 兼容的 dict 格式，如果 NeoData 不可用或无数据返回 None。
     """
@@ -440,9 +443,26 @@ def _enrich_with_neodata(entity: str) -> Optional[dict[str, Any]]:
         if scripts_dir not in sys.path:
             sys.path.insert(0, scripts_dir)
         from search_gateway import neodata_summary
-        summary = neodata_summary(entity)
+
+        # 优先用 resolved_ticker 查询，确保命中正确的上市地
+        summary = None
+        if resolved_ticker:
+            summary = neodata_summary(resolved_ticker)
+        if not summary or not summary.get('price'):
+            summary = neodata_summary(entity)
         if not summary or not summary.get('price'):
             return None
+
+        # 校验：如果 NeoData 返回的 ticker 跟预期上市地不匹配，丢弃
+        # 例如 resolved=1810.HK 但 NeoData 返回 XIACF.US → 数据来源不对
+        nd_ticker = summary.get('ticker', '')
+        if resolved_ticker and nd_ticker:
+            nd_suffix = nd_ticker.split('.')[-1].upper() if '.' in nd_ticker else ''
+            res_suffix = resolved_ticker.split('.')[-1].upper() if '.' in resolved_ticker else ''
+            # 后缀不同且都不是空 → 上市地不匹配，丢弃 NeoData 结果
+            if nd_suffix and res_suffix and nd_suffix != res_suffix:
+                return None
+
         return {
             'ticker': summary.get('ticker', ''),
             'company_name': entity,
@@ -538,7 +558,7 @@ def enrich_with_yahoo(entity: str) -> dict[str, Any]:
     # ── NeoData 路径（A/HK 股优先） ──
     neodata_result = None
     if is_ahk:
-        neodata_result = _enrich_with_neodata(entity)
+        neodata_result = _enrich_with_neodata(entity, resolved_ticker=resolved)
         if neodata_result and resolved:
             neodata_result['ticker'] = resolved
 

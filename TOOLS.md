@@ -57,15 +57,7 @@ result = compute_all("AAPL")  # dict: roe, roa, gross_margin, net_margin, fcf_yi
 
 **注意**：ROE/ROA 计算已修复 yfinance 季度数组长度不一致 Bug（income statement vs balance sheet 季度数可能不同）。
 
-### 技术指标预计算
-
-```bash
-# 11项技术指标一键计算
-python3 scripts/technical_indicators.py AAPL
-# 输出: MA5/10/20/60, RSI14, MACD, 布林带, 成交量比, ATR, 波动率
-```
-
-### 信息传导验证（牛津论文对齐）
+### 信息传导验证
 
 ```bash
 # 7-Agent 信息传导验证

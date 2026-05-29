@@ -48,15 +48,12 @@ DEFAULT_ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/coding/v3"
 DEFAULT_ARK_API_KEY = ""  # 请使用 --api-key CLI 参数或 VOLCES_ARK_API_KEY 环境变量
 
 # 核心 step（信息传导失败会导致阻断交付）
-# 对标论文 Table 3: 技术面/行业/财务/宏观→统稿是最关键的信号传导链路
-# 2026-05-15: step0_tech 和 step_macro 已补入 IR 管线（牛津论文对齐）
-CORE_STEPS = {"step0_tech", "step2_industry", "step3_biz", "step4_finance", "step_macro"}
+# 对标论文 Table 3: 行业/财务/宏观→统稿是最关键的信号传导链路
+CORE_STEPS = {"step2_industry", "step3_biz", "step4_finance", "step_macro"}
 
 # 所有前序 step → step8 映射
-# 对齐实际 IR 管线 STEP_DEPS (ir_subagent_launcher_wb.py): step0_tech/step1_data ~ step_macro/step8_master
-# 2026-05-15: step0_tech（技术分析）和 step_macro（宏观分析）已补入，对齐牛津论文 7-Agent 架构
+# 对齐实际 IR 管线 STEP_DEPS (ir_subagent_launcher_wb.py)
 STEP_TO_NAME = {
-    "step0_tech": "技术分析 (step0_tech)",
     "step1_data": "行情与基础数据 (step1_data)",
     "step2_industry": "行业与市场格局 (step2_industry)",
     "step3_biz": "业务模式 (step3_biz)",
@@ -327,14 +324,13 @@ def format_report(check_result: Dict[str, Any]) -> str:
         "",
         "| 论文关系 | 论文数值 | 对应 IR 管线 |",
         "|---------|---------|-------------|",
-        "| Technical → Sector | 0.397 (fine) | step0_tech → step8 |",
         "| Quantitative → Sector | 0.397 (fine) | step4_finance → step8 |",
         "| Qualitative → Sector | 0.244 (fine) | step3_biz/step5_mgmt → step8 |",
         "| Macro → PM | 0.203 (fine) | step_macro → step8 |",
         "| News → PM | 0.182 (fine) | step7_risk → step8 |",
         "| Sector → PM | 0.425 (fine) | step2_industry → step8 |",
         "",
-        "_注: 以上为论文基线值，仅作参考。2026-05-15 已补入 step0_tech 和 step_macro，7-Agent 架构对标牛津论文。_",
+        "_注: 以上为论文基线值，仅作参考。_",
     ])
 
     return "\n".join(lines)

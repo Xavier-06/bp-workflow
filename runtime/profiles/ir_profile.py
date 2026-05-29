@@ -223,9 +223,9 @@ def _run_extract(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════
 
 def _run_precompute(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
-    """Phase 1.2: 运行三大预计算引擎（财务指标 / 技术指标 / 行业对标）。
+    """Phase 1.2: 运行预计算引擎（财务指标 / 行业对标）。
 
-    输出写入 data/tasks/ 供子代理（step0_tech/step4_finance/step6b_valuation 等）使用。
+    输出写入 data/tasks/ 供子代理（step4_finance/step6b_valuation 等）使用。
     预计算引擎需要股票代码（ticker），如果 metadata 没有则尝试解析。
     """
     import subprocess
@@ -251,10 +251,9 @@ def _run_precompute(runtime_root: Path, job_ctx: JobContext) -> dict[str, Any]:
     tasks_dir = runtime_root / "data" / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
 
-    # 三个预计算引擎
+    # 预计算引擎
     engines = {
         "financial_metrics": runtime_root / "scripts" / "financial_metrics_precompute.py",
-        "technical_indicators": runtime_root / "scripts" / "technical_indicators.py",
         "sector_benchmarks": runtime_root / "scripts" / "sector_benchmarks.py",
     }
 
